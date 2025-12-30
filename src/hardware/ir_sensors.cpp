@@ -12,7 +12,7 @@ namespace IR
 
     int readLeft()
     {
-        return digitalRead(IR_LEFT_PIN); // 1 = nothing, 2 = discovered something
+        return digitalRead(IR_LEFT_PIN); // 1 = nothing, 0 = discovered something
     }
 
     int readRight()
