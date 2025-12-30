@@ -4,7 +4,7 @@
 constexpr int IR_LEFT_PIN = 18;
 constexpr int IR_RIGHT_PIN = 19;
 
-// I2C Light Sensor (BH1750)
+// // I2C Bus (Used by BH1750 and SSD1306 OLED)
 constexpr int I2C_SDA = 21;
 constexpr int I2C_SCL = 22;
 
