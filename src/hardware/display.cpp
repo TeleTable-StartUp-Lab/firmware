@@ -1,5 +1,6 @@
 #include "display.h"
 #include "pins.h"
+#include "utils/logger.h"
 #include <Wire.h>
 
 #define SCREEN_WIDTH 128
@@ -16,8 +17,11 @@ bool DisplayController::begin()
 
     if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS))
     {
+        Logger::error("DISPLAY", "SSD1306 allocation failed");
         return false;
     }
+
+    Logger::info("DISPLAY", "OLED initialized");
     clear();
     return true;
 }

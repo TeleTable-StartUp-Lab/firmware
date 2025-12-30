@@ -1,16 +1,16 @@
 #include "bh1750.h"
 #include "pins.h"
-
+#include "utils/logger.h"
 void BH1750Sensor::begin()
 {
     Wire.begin(I2C_SDA, I2C_SCL);
     if (lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE))
     {
-        Serial.println(F("BH1750 initialized"));
+        Logger::info("LIGHT", "BH1750 initialized");
     }
     else
     {
-        Serial.println(F("Error starting the BH1750!"));
+        Logger::error("LIGHT", "Error starting the BH1750!");
     }
 }
 

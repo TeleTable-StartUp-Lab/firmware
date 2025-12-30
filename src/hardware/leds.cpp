@@ -1,4 +1,6 @@
 #include "leds.h"
+#include "pins.h"
+#include "utils/logger.h"
 
 void LEDController::begin()
 {
@@ -10,6 +12,7 @@ void LEDController::begin()
 
     FastLED.setBrightness(128);
 
+    Logger::info("LEDS", "WS2812B strip initialized with 500mA limit");
     clear();
 }
 

@@ -1,5 +1,6 @@
 #include "api_handler.h"
 #include <ArduinoJson.h>
+#include "utils/logger.h"
 
 ApiHandler::ApiHandler(AsyncWebServer *server, SystemState *state)
     : _server(server), _state(state) {}
@@ -7,6 +8,7 @@ ApiHandler::ApiHandler(AsyncWebServer *server, SystemState *state)
 void ApiHandler::begin()
 {
     setupRoutes();
+    Logger::info("API", "REST API routes initialized");
 }
 
 void ApiHandler::setupRoutes()
@@ -14,6 +16,7 @@ void ApiHandler::setupRoutes()
     // GET /status - Telemetry endpoint
     _server->on("/status", HTTP_GET, [this](AsyncWebServerRequest *request)
                 {
+        Logger::debug("API", "Status requested via GET");
         JsonDocument doc;
         doc["systemHealth"] = _state->systemHealth;
         doc["batteryLevel"] = _state->batteryLevel;
@@ -37,8 +40,10 @@ void ApiHandler::setupRoutes()
                 else if (mode == "IDLE") _state->driveMode = IDLE;
                 else if (mode == "AUTO") _state->driveMode = AUTO;
                 
+                Logger::info("API", "Drive mode changed via POST");
                 request->send(200, "application/json", "{\"status\":\"success\"}");
             } else {
+                Logger::warn("API", "Invalid mode change request received");
                 request->send(400, "application/json", "{\"status\":\"error\"}");
             } });
 }

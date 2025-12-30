@@ -1,5 +1,6 @@
 #include "ir_sensors.h"
 #include "pins.h"
+#include "utils/logger.h"
 
 namespace IR
 {
@@ -8,6 +9,7 @@ namespace IR
     {
         pinMode(IR_LEFT_PIN, INPUT);
         pinMode(IR_RIGHT_PIN, INPUT);
+        Logger::info("IR", "Infrared sensors initialized");
     }
 
     int readLeft()
