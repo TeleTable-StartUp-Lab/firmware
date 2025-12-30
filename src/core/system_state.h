@@ -13,19 +13,22 @@ enum DriveMode
 
 struct SystemState
 {
+    // Constructor declaration
+    SystemState();
+
     // Telemetry data
-    float lux = 0.0f;
-    bool obstacleLeft = false;
-    bool obstacleRight = false;
-    int batteryLevel = 100; // in percent
+    float lux;
+    bool obstacleLeft;
+    bool obstacleRight;
+    int batteryLevel; // in percent
 
     // Status info
-    DriveMode driveMode = IDLE;
-    String systemHealth = "OK";
-    String currentPosition = "Unknown";
+    DriveMode driveMode;
+    String systemHealth;
+    String currentPosition;
 
     // Timing
-    unsigned long lastStatusUpdate = 0;
+    unsigned long lastStatusUpdate;
 };
 
 #endif

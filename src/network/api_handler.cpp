@@ -18,11 +18,18 @@ void ApiHandler::setupRoutes()
                 {
         Logger::debug("API", "Status requested via GET");
         JsonDocument doc;
+        
+        // System information
         doc["systemHealth"] = _state->systemHealth;
         doc["batteryLevel"] = _state->batteryLevel;
         doc["driveMode"] = (_state->driveMode == MANUAL) ? "MANUAL" : 
                            (_state->driveMode == AUTO) ? "AUTO" : "IDLE";
         doc["position"] = _state->currentPosition;
+
+        // Sensor data
+        doc["lux"] = _state->lux;
+        doc["obstacleLeft"] = _state->obstacleLeft;
+        doc["obstacleRight"] = _state->obstacleRight;
 
         String response;
         serializeJson(doc, response);
