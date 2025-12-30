@@ -12,6 +12,7 @@ public:
 
 private:
     BH1750 lightMeter;
+    static bool _isInitialized;
 };
 
 #endif
