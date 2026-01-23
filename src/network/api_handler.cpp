@@ -51,6 +51,10 @@ void ApiHandler::setupRoutes()
                     doc["obstacleLeft"] = _state->obstacleLeft;
                     doc["obstacleRight"] = _state->obstacleRight;
 
+                    // Manual control (debug)
+                    doc["linearVelocity"] = _state->linearVelocity;
+                    doc["angularVelocity"] = _state->angularVelocity;
+
                     String response;
                     serializeJson(doc, response);
                     request->send(200, "application/json", response); });

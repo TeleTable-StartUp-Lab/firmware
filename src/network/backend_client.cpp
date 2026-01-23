@@ -3,7 +3,7 @@
 #include "utils/logger.h"
 
 // TEMP backend config placeholder
-static const char *BACKEND_HOST = "192.168.0.100";
+static const char *BACKEND_HOST = "172.20.10.3";
 static const uint16_t BACKEND_WS_PORT = 3003;
 
 BackendClient::BackendClient(uint16_t udpPort, uint16_t robotHttpPort, SystemState *state)
@@ -97,6 +97,32 @@ void BackendClient::handleWsText(const String &msg)
                 Logger::warn("BACKEND", ("Invalid mode string: " + mode).c_str());
             }
         }
+        return;
+    }
+
+    if (strcmp(command, "DRIVE_COMMAND") == 0)
+    {
+        if (!_state)
+            return;
+
+        if (_state->driveMode != MANUAL)
+        {
+            Logger::warn("BACKEND", "DRIVE_COMMAND ignored (not in MANUAL mode)");
+            return;
+        }
+
+        float linear = doc["linear_velocity"] | 0.0f;
+        float angular = doc["angular_velocity"] | 0.0f;
+
+        _state->linearVelocity = linear;
+        _state->angularVelocity = angular;
+
+        Logger::info(
+            "BACKEND",
+            ("Manual drive cmd: linear=" + String(linear, 3) +
+             " angular=" + String(angular, 3))
+                .c_str());
+
         return;
     }
 

@@ -22,6 +22,10 @@ struct SystemState
     bool obstacleRight;
     int batteryLevel; // in percent
 
+    // Manual control velocities
+    float linearVelocity;
+    float angularVelocity;
+
     // Status info
     DriveMode driveMode;
     String systemHealth;

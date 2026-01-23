@@ -13,6 +13,8 @@ SystemState::SystemState()
     currentPosition = "Docking Station";
 
     lastStatusUpdate = 0;
+    linearVelocity = 0.0f;
+    angularVelocity = 0.0f;
 }
 
 const char *SystemState::driveModeToCString() const
