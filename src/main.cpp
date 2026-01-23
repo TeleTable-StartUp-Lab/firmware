@@ -7,6 +7,7 @@
 #include "core/system_state.h"
 #include "network/wifi_manager.h"
 #include "network/api_handler.h"
+#include "network/backend_client.h"
 
 // Hardware and Utils
 #include "hardware/display.h"
@@ -21,6 +22,7 @@ AsyncWebServer server(80);
 SystemState state;
 WifiManager wifi;
 ApiHandler api(&server, &state);
+BackendClient backend(3001, 80);
 
 // Hardware Controllers
 DisplayController display;
@@ -103,6 +105,7 @@ void setup()
 
   // 3. Network and API Setup
   wifi.connect();
+  backend.begin();
   api.begin();
   server.begin();
 
@@ -150,4 +153,5 @@ void loop()
     }
     lastWifiCheck = currentMillis;
   }
+  backend.loop();
 }
