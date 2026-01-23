@@ -38,7 +38,7 @@ app = Flask(__name__)
 # Mock Robot State
 robot_state = {
     "systemHealth": "OK",
-    "batteryLevel": 85,
+    "batteryLevel": 50,
     "driveMode": "IDLE",
     "cargoStatus": "EMPTY",
     "currentPosition": "Home",
