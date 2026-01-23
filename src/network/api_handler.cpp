@@ -13,16 +13,37 @@ void ApiHandler::begin()
 
 void ApiHandler::setupRoutes()
 {
+    // GET /health - Healthcheck endpoint
+    _server->on("/health", HTTP_GET, [](AsyncWebServerRequest *request)
+                { request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Robot is online\"}"); });
+
+    // GET /nodes - Available navigation nodes
+    _server->on("/nodes", HTTP_GET, [](AsyncWebServerRequest *request)
+                {
+        JsonDocument doc;
+        JsonArray nodes = doc["nodes"].to<JsonArray>();
+
+        nodes.add("Home");
+        nodes.add("Kitchen");
+        nodes.add("Living Room");
+        nodes.add("Office");
+        nodes.add("Bedroom");
+        nodes.add("Charging Station");
+
+        String response;
+        serializeJson(doc, response);
+        request->send(200, "application/json", response); });
+
     // GET /status - Telemetry endpoint
     _server->on("/status", HTTP_GET, [this](AsyncWebServerRequest *request)
                 {
         Logger::debug("API", "Status requested via GET");
         JsonDocument doc;
-        
+
         // System information
         doc["systemHealth"] = _state->systemHealth;
         doc["batteryLevel"] = _state->batteryLevel;
-        doc["driveMode"] = (_state->driveMode == MANUAL) ? "MANUAL" : 
+        doc["driveMode"] = (_state->driveMode == MANUAL) ? "MANUAL" :
                            (_state->driveMode == AUTO) ? "AUTO" : "IDLE";
         doc["position"] = _state->currentPosition;
 
@@ -35,22 +56,42 @@ void ApiHandler::setupRoutes()
         serializeJson(doc, response);
         request->send(200, "application/json", response); });
 
+    // Shared POST handler for /mode and /control/mode
+    auto modeHandler = [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
+    {
+        JsonDocument doc;
+        DeserializationError err = deserializeJson(doc, data, len);
+
+        if (err)
+        {
+            Logger::warn("API", "Failed to parse JSON in mode endpoint");
+            request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"invalid_json\"}");
+            return;
+        }
+
+        if (!doc["mode"].isNull())
+        {
+            String mode = doc["mode"];
+            if (mode == "MANUAL")
+                _state->driveMode = MANUAL;
+            else if (mode == "IDLE")
+                _state->driveMode = IDLE;
+            else if (mode == "AUTO")
+                _state->driveMode = AUTO;
+
+            Logger::info("API", "Drive mode changed via POST");
+            request->send(200, "application/json", "{\"status\":\"success\"}");
+        }
+        else
+        {
+            Logger::warn("API", "Invalid mode change request received");
+            request->send(400, "application/json", "{\"status\":\"error\"}");
+        }
+    };
+
     // POST /mode - Change robot mode
-    _server->on("/mode", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL, [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
-                {
-            JsonDocument doc;
-            deserializeJson(doc, data);
-            
-            if (!doc["mode"].isNull()) { 
-                String mode = doc["mode"];
-                if (mode == "MANUAL") _state->driveMode = MANUAL;
-                else if (mode == "IDLE") _state->driveMode = IDLE;
-                else if (mode == "AUTO") _state->driveMode = AUTO;
-                
-                Logger::info("API", "Drive mode changed via POST");
-                request->send(200, "application/json", "{\"status\":\"success\"}");
-            } else {
-                Logger::warn("API", "Invalid mode change request received");
-                request->send(400, "application/json", "{\"status\":\"error\"}");
-            } });
+    _server->on("/mode", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL, modeHandler);
+
+    // POST /control/mode - Alias for backend timeout handling
+    _server->on("/control/mode", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL, modeHandler);
 }
