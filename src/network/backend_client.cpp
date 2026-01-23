@@ -2,21 +2,20 @@
 #include <WiFi.h>
 #include "utils/logger.h"
 
-// TEMP: backend config placeholder (no backend running yet -> reconnect logs are expected)
+// TEMP backend config placeholder
 static const char *BACKEND_HOST = "192.168.0.100";
 static const uint16_t BACKEND_WS_PORT = 3003;
 
-BackendClient::BackendClient(uint16_t udpPort, uint16_t robotHttpPort)
-    : _udpPort(udpPort), _robotHttpPort(robotHttpPort) {}
+BackendClient::BackendClient(uint16_t udpPort, uint16_t robotHttpPort, SystemState *state)
+    : _udpPort(udpPort), _robotHttpPort(robotHttpPort), _state(state) {}
 
 void BackendClient::begin()
 {
     _udp.begin(0);
-
     setupWebSocket();
 
     Logger::info("BACKEND", "BackendClient initialized (UDP + WS)");
-    _lastAnnounceMs = 0; // force announce soon
+    _lastAnnounceMs = 0;
 }
 
 void BackendClient::loop()
@@ -49,9 +48,6 @@ void BackendClient::setupWebSocket()
 
 void BackendClient::onWebSocketEvent(WStype_t type, uint8_t *payload, size_t length)
 {
-    (void)payload;
-    (void)length;
-
     switch (type)
     {
     case WStype_CONNECTED:
@@ -63,12 +59,48 @@ void BackendClient::onWebSocketEvent(WStype_t type, uint8_t *payload, size_t len
         break;
 
     case WStype_TEXT:
-        Logger::info("BACKEND", "WebSocket text received (ignored for now)");
+    {
+        String msg((char *)payload, length);
+        handleWsText(msg);
         break;
+    }
 
     default:
         break;
     }
+}
+
+void BackendClient::handleWsText(const String &msg)
+{
+    Logger::info("BACKEND", ("WS TEXT: " + msg).c_str());
+
+    StaticJsonDocument<256> doc;
+    DeserializationError err = deserializeJson(doc, msg);
+    if (err)
+    {
+        Logger::error("BACKEND", "WS JSON parse failed");
+        return;
+    }
+
+    const char *command = doc["command"] | "";
+    if (strcmp(command, "SET_MODE") == 0)
+    {
+        String mode = doc["mode"] | "IDLE";
+        if (_state)
+        {
+            if (_state->setDriveModeFromString(mode))
+            {
+                Logger::info("BACKEND", ("Drive mode set to " + mode).c_str());
+            }
+            else
+            {
+                Logger::warn("BACKEND", ("Invalid mode string: " + mode).c_str());
+            }
+        }
+        return;
+    }
+
+    Logger::warn("BACKEND", "Unknown WS command (ignored)");
 }
 
 IPAddress BackendClient::computeBroadcastAddress()

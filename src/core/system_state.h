@@ -13,7 +13,7 @@ enum DriveMode
 
 struct SystemState
 {
-    // Constructor declaration
+    // Constructor
     SystemState();
 
     // Telemetry data
@@ -29,6 +29,10 @@ struct SystemState
 
     // Timing
     unsigned long lastStatusUpdate;
+
+    // Helpers
+    const char *driveModeToCString() const;
+    bool setDriveModeFromString(const String &mode);
 };
 
 #endif

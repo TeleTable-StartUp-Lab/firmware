@@ -22,7 +22,7 @@ AsyncWebServer server(80);
 SystemState state;
 WifiManager wifi;
 ApiHandler api(&server, &state);
-BackendClient backend(3001, 80);
+BackendClient backend(3001, 80, &state);
 
 // Hardware Controllers
 DisplayController display;
