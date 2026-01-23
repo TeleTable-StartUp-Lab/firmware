@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <WiFiUdp.h>
+#include <WebSocketsClient.h> 
 
 class BackendClient
 {
@@ -18,10 +19,15 @@ private:
     uint16_t _robotHttpPort;
 
     unsigned long _lastAnnounceMs = 0;
-    const unsigned long _announceIntervalMs = 10000;
+    static constexpr unsigned long ANNOUNCE_INTERVAL_MS = 10000;
 
     IPAddress computeBroadcastAddress();
     void sendUdpAnnounce();
+
+    WebSocketsClient _ws;
+
+    void setupWebSocket();
+    void onWebSocketEvent(WStype_t type, uint8_t *payload, size_t length);
 };
 
-#endif
+#endif 
