@@ -17,6 +17,7 @@
 #include "utils/logger.h"
 #include "pins.h"
 #include "hardware/motors.h"
+#include "hardware/audio.h"
 
 // Global instances
 AsyncWebServer server(80);
@@ -30,6 +31,7 @@ DisplayController display;
 LEDController leds;
 BH1750Sensor lightSensor;
 DifferentialDrive drive;
+Audio audio;
 
 /**
  * Scans the I2C bus for connected devices to ensure hardware is present.
@@ -113,6 +115,9 @@ void setup()
   backend.begin();
   api.begin();
   server.begin();
+
+  audio.begin();
+  audio.setVolume(0.4f);
 
   state.systemHealth = "OK";
   Logger::info("SYSTEM", "Setup sequence complete.");

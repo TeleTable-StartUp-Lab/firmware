@@ -24,3 +24,10 @@ constexpr int NUM_LEDS = 144;
 #define CH_L2 1
 #define CH_R1 2
 #define CH_R2 3
+
+// Audio (I2S)
+constexpr int I2S_DOUT = 23;
+constexpr int I2S_BCLK = 4;
+constexpr int I2S_LRC = 16;
+
+constexpr int AUDIO_SAMPLE_RATE = 44100;
