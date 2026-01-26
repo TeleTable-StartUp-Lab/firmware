@@ -11,3 +11,16 @@ constexpr int I2C_SCL = 22;
 // LED Strip (WS2812B)
 constexpr int LED_DATA_PIN = 13;
 constexpr int NUM_LEDS = 144;
+
+// Motors (H-bridge IN pins)
+#define L_MOTOR_IN1 25
+#define L_MOTOR_IN2 26
+
+#define R_MOTOR_IN1 27
+#define R_MOTOR_IN2 14
+
+// PWM channels
+#define CH_L1 0
+#define CH_L2 1
+#define CH_R1 2
+#define CH_R2 3

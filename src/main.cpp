@@ -16,6 +16,7 @@
 #include "hardware/ir_sensors.h"
 #include "utils/logger.h"
 #include "pins.h"
+#include "hardware/motors.h"
 
 // Global instances
 AsyncWebServer server(80);
@@ -28,6 +29,7 @@ BackendClient backend(3001, 80, &state);
 DisplayController display;
 LEDController leds;
 BH1750Sensor lightSensor;
+DifferentialDrive drive;
 
 /**
  * Scans the I2C bus for connected devices to ensure hardware is present.
@@ -103,6 +105,9 @@ void setup()
 
   IR::init();
 
+  drive.begin();
+  delay(50);
+
   // 3. Network and API Setup
   wifi.connect();
   backend.begin();
@@ -154,4 +159,24 @@ void loop()
     lastWifiCheck = currentMillis;
   }
   backend.loop();
+
+  if (state.driveMode == MANUAL)
+  {
+    drive.twist(state.linearVelocity, state.angularVelocity);
+  }
+  else
+  {
+    drive.stop();
+  }
+  if (state.driveMode == MANUAL)
+  {
+    if ((state.obstacleLeft || state.obstacleRight) && state.linearVelocity > 0.05f)
+      drive.stop();
+    else
+      drive.twist(state.linearVelocity, state.angularVelocity);
+  }
+  else
+  {
+    drive.stop();
+  }
 }
