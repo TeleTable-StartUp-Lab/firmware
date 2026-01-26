@@ -1,4 +1,5 @@
-#include "motors.h"
+#include "hardware/motors.h"
+#include <math.h>
 
 static constexpr uint32_t PWM_FREQ = 20000;
 static constexpr uint8_t PWM_RES = 8;
@@ -11,10 +12,8 @@ void Motor::begin(uint32_t freq, uint8_t resBits)
 {
     ledcSetup(_ch1, freq, resBits);
     ledcSetup(_ch2, freq, resBits);
-
     ledcAttachPin(_in1, _ch1);
     ledcAttachPin(_in2, _ch2);
-
     stop();
 }
 
@@ -28,7 +27,7 @@ void Motor::set(int16_t speed)
 {
     if (speed > PWM_MAX)
         speed = PWM_MAX;
-    else if (speed < -PWM_MAX)
+    if (speed < -PWM_MAX)
         speed = -PWM_MAX;
 
     if (speed >= 0)
@@ -102,4 +101,71 @@ void DifferentialDrive::twist(float linear, float angular)
     int16_t right = clampI16((int32_t)lroundf(r * PWM_MAX), -PWM_MAX, PWM_MAX);
 
     drive(left, right);
+}
+
+MotorController::MotorController(SystemState *state) : _state(state) {}
+
+void MotorController::begin()
+{
+    _drive.begin();
+}
+
+void MotorController::startTask()
+{
+    if (_task)
+        return;
+
+    xTaskCreatePinnedToCore(
+        taskTrampoline,
+        "MotorTask",
+        3072,
+        this,
+        2,
+        &_task,
+        1);
+}
+
+void MotorController::stopTask()
+{
+    if (!_task)
+        return;
+    vTaskDelete(_task);
+    _task = nullptr;
+}
+
+void MotorController::taskTrampoline(void *arg)
+{
+    static_cast<MotorController *>(arg)->taskLoop();
+}
+
+void MotorController::taskLoop()
+{
+    for (;;)
+    {
+        DriveMode mode;
+        float lin, ang;
+        bool obsL, obsR;
+
+        _state->lock();
+        mode = _state->driveMode;
+        lin = _state->linearVelocity;
+        ang = _state->angularVelocity;
+        obsL = _state->obstacleLeft;
+        obsR = _state->obstacleRight;
+        _state->unlock();
+
+        if (mode == MANUAL)
+        {
+            if ((obsL || obsR) && lin > 0.05f)
+                _drive.stop();
+            else
+                _drive.twist(lin, ang);
+        }
+        else
+        {
+            _drive.stop();
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
 }

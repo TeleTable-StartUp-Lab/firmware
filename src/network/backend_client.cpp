@@ -1,4 +1,4 @@
-#include "backend_client.h"
+#include "network/backend_client.h"
 #include <WiFi.h>
 #include "utils/logger.h"
 
@@ -23,7 +23,6 @@ void BackendClient::loop()
     if (WiFi.status() != WL_CONNECTED)
         return;
 
-    // UDP announce
     const unsigned long now = millis();
     if (now - _lastAnnounceMs >= ANNOUNCE_INTERVAL_MS)
     {
@@ -31,7 +30,6 @@ void BackendClient::loop()
         _lastAnnounceMs = now;
     }
 
-    // WebSocket
     _ws.loop();
 }
 
@@ -83,20 +81,24 @@ void BackendClient::handleWsText(const String &msg)
     }
 
     const char *command = doc["command"] | "";
+
     if (strcmp(command, "SET_MODE") == 0)
     {
+        if (!_state)
+            return;
+
         String mode = doc["mode"] | "IDLE";
-        if (_state)
-        {
-            if (_state->setDriveModeFromString(mode))
-            {
-                Logger::info("BACKEND", ("Drive mode set to " + mode).c_str());
-            }
-            else
-            {
-                Logger::warn("BACKEND", ("Invalid mode string: " + mode).c_str());
-            }
-        }
+
+        bool ok = false;
+        _state->lock();
+        ok = _state->setDriveModeFromString(mode);
+        _state->unlock();
+
+        if (ok)
+            Logger::info("BACKEND", ("Drive mode set to " + mode).c_str());
+        else
+            Logger::warn("BACKEND", ("Invalid mode string: " + mode).c_str());
+
         return;
     }
 
@@ -105,7 +107,12 @@ void BackendClient::handleWsText(const String &msg)
         if (!_state)
             return;
 
-        if (_state->driveMode != MANUAL)
+        bool manual = false;
+        _state->lock();
+        manual = (_state->driveMode == MANUAL);
+        _state->unlock();
+
+        if (!manual)
         {
             Logger::warn("BACKEND", "DRIVE_COMMAND ignored (not in MANUAL mode)");
             return;
@@ -114,8 +121,10 @@ void BackendClient::handleWsText(const String &msg)
         float linear = doc["linear_velocity"] | 0.0f;
         float angular = doc["angular_velocity"] | 0.0f;
 
+        _state->lock();
         _state->linearVelocity = linear;
         _state->angularVelocity = angular;
+        _state->unlock();
 
         Logger::info(
             "BACKEND",

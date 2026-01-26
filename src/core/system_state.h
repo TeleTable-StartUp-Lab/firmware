@@ -2,8 +2,9 @@
 #define SYSTEM_STATE_H
 
 #include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
-// Current drive mode of the robot
 enum DriveMode
 {
     IDLE,
@@ -13,30 +14,30 @@ enum DriveMode
 
 struct SystemState
 {
-    // Constructor
     SystemState();
 
-    // Telemetry data
     float lux;
     bool obstacleLeft;
     bool obstacleRight;
-    int batteryLevel; // in percent
+    int batteryLevel;
 
-    // Manual control velocities
     float linearVelocity;
     float angularVelocity;
 
-    // Status info
     DriveMode driveMode;
     String systemHealth;
     String currentPosition;
 
-    // Timing
     unsigned long lastStatusUpdate;
 
-    // Helpers
     const char *driveModeToCString() const;
     bool setDriveModeFromString(const String &mode);
+
+    void lock();
+    void unlock();
+
+private:
+    SemaphoreHandle_t _mtx;
 };
 
 #endif

@@ -1,8 +1,7 @@
-#ifndef MOTORS_H
-#define MOTORS_H
-
+#pragma once
 #include <Arduino.h>
 #include "pins.h"
+#include "core/system_state.h"
 
 class Motor
 {
@@ -13,8 +12,7 @@ public:
     void set(int16_t speed);
 
 private:
-    uint8_t _in1, _in2;
-    uint8_t _ch1, _ch2;
+    uint8_t _in1, _in2, _ch1, _ch2;
 };
 
 class DifferentialDrive
@@ -33,4 +31,20 @@ private:
     static float clampF(float v, float lo, float hi);
 };
 
-#endif
+class MotorController
+{
+public:
+    explicit MotorController(SystemState *state);
+    void begin();
+    void startTask();
+    void stopTask();
+
+private:
+    static void taskTrampoline(void *arg);
+    void taskLoop();
+
+    SystemState *_state;
+    DifferentialDrive _drive;
+
+    TaskHandle_t _task = nullptr;
+};

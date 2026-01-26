@@ -13,11 +13,9 @@ void ApiHandler::begin()
 
 void ApiHandler::setupRoutes()
 {
-    // GET /health - Healthcheck endpoint
     _server->on("/health", HTTP_GET, [](AsyncWebServerRequest *request)
                 { request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Robot is online\"}"); });
 
-    // GET /nodes - Available navigation nodes
     _server->on("/nodes", HTTP_GET, [](AsyncWebServerRequest *request)
                 {
                     JsonDocument doc;
@@ -34,32 +32,45 @@ void ApiHandler::setupRoutes()
                     serializeJson(doc, response);
                     request->send(200, "application/json", response); });
 
-    // GET /status - Telemetry endpoint
     _server->on("/status", HTTP_GET, [this](AsyncWebServerRequest *request)
                 {
                     Logger::debug("API", "Status requested via GET");
                     JsonDocument doc;
 
-                    // System information
-                    doc["systemHealth"] = _state->systemHealth;
-                    doc["batteryLevel"] = _state->batteryLevel;
-                    doc["driveMode"] = _state->driveModeToCString();
-                    doc["position"] = _state->currentPosition;
+                    String systemHealth, position;
+                    int batteryLevel;
+                    float lux, linear, angular;
+                    bool obsL, obsR;
+                    const char *modeStr;
 
-                    // Sensor data
-                    doc["lux"] = _state->lux;
-                    doc["obstacleLeft"] = _state->obstacleLeft;
-                    doc["obstacleRight"] = _state->obstacleRight;
+                    _state->lock();
+                    systemHealth = _state->systemHealth;
+                    batteryLevel = _state->batteryLevel;
+                    modeStr = _state->driveModeToCString();
+                    position = _state->currentPosition;
 
-                    // Manual control (debug)
-                    doc["linearVelocity"] = _state->linearVelocity;
-                    doc["angularVelocity"] = _state->angularVelocity;
+                    lux = _state->lux;
+                    obsL = _state->obstacleLeft;
+                    obsR = _state->obstacleRight;
+
+                    linear = _state->linearVelocity;
+                    angular = _state->angularVelocity;
+                    _state->unlock();
+
+                    doc["systemHealth"] = systemHealth;
+                    doc["batteryLevel"] = batteryLevel;
+                    doc["driveMode"] = modeStr;
+                    doc["position"] = position;
+                    doc["lux"] = lux;
+                    doc["obstacleLeft"] = obsL;
+                    doc["obstacleRight"] = obsR;
+                    doc["linearVelocity"] = linear;
+                    doc["angularVelocity"] = angular;
 
                     String response;
                     serializeJson(doc, response);
                     request->send(200, "application/json", response); });
 
-    // Shared POST handler for /mode and /control/mode
     auto modeHandler = [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
     {
         (void)index;
@@ -83,7 +94,12 @@ void ApiHandler::setupRoutes()
             return;
         }
 
-        if (_state->setDriveModeFromString(mode))
+        bool ok = false;
+        _state->lock();
+        ok = _state->setDriveModeFromString(mode);
+        _state->unlock();
+
+        if (ok)
         {
             Logger::info("API", ("Drive mode changed via POST to " + mode).c_str());
             request->send(200, "application/json", "{\"status\":\"success\"}");
@@ -95,9 +111,6 @@ void ApiHandler::setupRoutes()
         }
     };
 
-    // POST /mode - Change robot mode
     _server->on("/mode", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL, modeHandler);
-
-    // POST /control/mode - Alias for backend timeout handling
     _server->on("/control/mode", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL, modeHandler);
 }

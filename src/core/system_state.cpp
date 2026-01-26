@@ -1,8 +1,7 @@
-#include "system_state.h"
+#include "core/system_state.h"
 
 SystemState::SystemState()
 {
-    // Default values
     lux = 0.0f;
     obstacleLeft = false;
     obstacleRight = false;
@@ -15,6 +14,20 @@ SystemState::SystemState()
     lastStatusUpdate = 0;
     linearVelocity = 0.0f;
     angularVelocity = 0.0f;
+
+    _mtx = xSemaphoreCreateMutex();
+}
+
+void SystemState::lock()
+{
+    if (_mtx)
+        xSemaphoreTake(_mtx, portMAX_DELAY);
+}
+
+void SystemState::unlock()
+{
+    if (_mtx)
+        xSemaphoreGive(_mtx);
 }
 
 const char *SystemState::driveModeToCString() const
