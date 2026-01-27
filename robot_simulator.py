@@ -97,7 +97,8 @@ def send_udp_broadcast():
 def send_client_event(event):
     now = datetime.now(timezone.utc)
 
-    robot_event = {"event": event, "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ")}
+    robot_event = {"event": event,
+                   "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ")}
 
     headers = {"X-Api-Key": API_KEY, "Content-Type": "application/json"}
     try:
@@ -108,7 +109,8 @@ def send_client_event(event):
         if resp.status_code == 200:
             logger.info("Successfully sent event backend")
         else:
-            logger.warning(f"Failed sent event: {resp.status_code} - {resp.text}")
+            logger.warning(f"Failed sent event: {
+                           resp.status_code} - {resp.text}")
     except Exception as e:
         logger.error(f"Exception sending event: {e}")
 
@@ -143,12 +145,6 @@ def on_message(ws, message):
 
             # Run simulation in thread so we don't block WS
             threading.Thread(target=finish_move).start()
-
-        elif command_type == "SET_MODE":
-            mode = cmd.get("mode")
-            logger.info(f"Setting mode to {mode}")
-            robot_state["driveMode"] = mode
-            update_backend_state()
 
         elif command_type == "DRIVE_COMMAND":
             linear = cmd.get("linear_velocity", 0.0)
@@ -188,7 +184,8 @@ def update_backend_state():
         if resp.status_code == 200:
             logger.info("Successfully updated state to backend")
         else:
-            logger.warning(f"Failed to update state: {resp.status_code} - {resp.text}")
+            logger.warning(f"Failed to update state: {
+                           resp.status_code} - {resp.text}")
     except Exception as e:
         logger.error(f"Exception updating state: {e}")
 
