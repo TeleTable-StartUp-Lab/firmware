@@ -5,6 +5,7 @@
 #include "drivers/hbridge_motor.h"
 #include "drivers/obstacle_sensor.h"
 #include "drivers/bh1750_sensor.h"
+#include "drivers/i2s_audio.h"
 #include <Wire.h>
 #include <Adafruit_NeoPixel.h>
 
@@ -40,6 +41,11 @@ namespace
                               .sample_period_ms = 250});
 
     bool luxPeriodic = true;
+
+    I2sAudio audio({.bclk_pin = static_cast<int>(BoardPins::I2S_BCLK),
+                    .lrclk_pin = static_cast<int>(BoardPins::I2S_LRCLK),
+                    .dout_pin = static_cast<int>(BoardPins::I2S_DOUT),
+                    .sample_rate_hz = 22050});
 
     float clampf(float v, float lo, float hi)
     {
@@ -174,6 +180,9 @@ namespace
         Serial.println("  ledauto on|off      - enable/disable auto LED control");
         Serial.println("  ledcolor <r> <g> <b> - set LED color (0..255)");
         Serial.println("  ledbri <x>          - set LED brightness (0..255)");
+        Serial.println("  vol <0..100>        - set audio volume percent");
+        Serial.println("  beep                - play short test beep");
+        Serial.println("  beep <hz> <ms>      - play beep with frequency and duration");
     }
 
     void handleConsole()
@@ -356,6 +365,53 @@ namespace
             return;
         }
 
+        // --- Audio commands ---
+
+        if (line.startsWith("vol "))
+        {
+            long p = line.substring(4).toInt();
+            if (p < 0)
+                p = 0;
+            if (p > 100)
+                p = 100;
+
+            audio.setVolume(static_cast<float>(p) / 100.0f);
+            Serial.printf("[audio] volume=%ld%%\n", p);
+            return;
+        }
+
+        if (line.equalsIgnoreCase("beep"))
+        {
+            audio.playBeep(880, 150);
+            return;
+        }
+
+        if (line.startsWith("beep "))
+        {
+            const int s1 = line.indexOf(' ');
+            const int s2 = line.indexOf(' ', s1 + 1);
+            if (s2 < 0)
+            {
+                Serial.println("[console] usage: beep <hz> <ms>");
+                return;
+            }
+
+            long hz = line.substring(s1 + 1, s2).toInt();
+            long ms = line.substring(s2 + 1).toInt();
+
+            if (hz < 50)
+                hz = 50;
+            if (hz > 5000)
+                hz = 5000;
+            if (ms < 10)
+                ms = 10;
+            if (ms > 2000)
+                ms = 2000;
+
+            audio.playBeep(static_cast<uint16_t>(hz), static_cast<uint16_t>(ms));
+            return;
+        }
+
         Serial.println("[console] unknown command (type: help)");
     }
 
@@ -449,7 +505,11 @@ namespace App
         ledStrip.setBrightness(ledBrightness);
         ledStrip.show();
 
-        Serial.println("[boot] base scaffold + motors + IR + BH1750 + WS2812B");
+        const bool aok = audio.begin();
+        Serial.printf("[audio] init %s\n", aok ? "ok" : "fail");
+        audio.setVolume(0.20f);
+
+        Serial.println("[boot] base scaffold + motors + IR + BH1750 + WS2812B + I2S audio");
         printHelp();
     }
 

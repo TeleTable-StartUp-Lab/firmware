@@ -24,4 +24,8 @@ namespace BoardPins
     constexpr float LED_LUX_OFF_THRESHOLD = 32.0f; // LED OFF if brighter than this
 
     constexpr bool IR_ACTIVE_LOW = true;
+
+    constexpr gpio_num_t I2S_BCLK = GPIO_NUM_27;
+    constexpr gpio_num_t I2S_LRCLK = GPIO_NUM_14;
+    constexpr gpio_num_t I2S_DOUT = GPIO_NUM_12;
 }
