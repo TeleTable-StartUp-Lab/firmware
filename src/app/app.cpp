@@ -6,6 +6,7 @@
 #include "drivers/obstacle_sensor.h"
 #include "drivers/bh1750_sensor.h"
 #include <Wire.h>
+#include <Adafruit_NeoPixel.h>
 
 namespace
 {
@@ -85,6 +86,77 @@ namespace
         Serial.printf("[lux] %.1f lx\n", static_cast<double>(lightSensor.lux()));
     }
 
+    // ---------------- LED strip ----------------
+
+    constexpr uint16_t LED_COUNT = 144;
+
+    Adafruit_NeoPixel ledStrip(
+        LED_COUNT,
+        static_cast<uint8_t>(BoardPins::LED_STRIP_DATA),
+        NEO_GRB + NEO_KHZ800);
+
+    bool ledEnabled = false;
+    bool ledAutoEnabled = true;
+
+    uint8_t ledBrightness = 40;
+    uint8_t ledR = 255;
+    uint8_t ledG = 255;
+    uint8_t ledB = 255;
+
+    void ledApply()
+    {
+        if (!ledEnabled)
+        {
+            ledStrip.clear();
+            ledStrip.show();
+            return;
+        }
+
+        const uint32_t c = ledStrip.Color(ledR, ledG, ledB);
+        for (uint16_t i = 0; i < LED_COUNT; ++i)
+        {
+            ledStrip.setPixelColor(i, c);
+        }
+
+        ledStrip.setBrightness(ledBrightness);
+        ledStrip.show();
+    }
+
+    void ledSetEnabled(bool enabled)
+    {
+        if (ledEnabled == enabled)
+            return;
+
+        ledEnabled = enabled;
+        ledApply();
+
+        Serial.printf("[led] %s\n", ledEnabled ? "ON" : "OFF");
+    }
+
+    void ledAutoTask()
+    {
+        if (!ledAutoEnabled)
+            return;
+
+        if (!lightSensor.hasReading())
+            return;
+
+        const float lux = lightSensor.lux();
+
+        if (!ledEnabled && lux < BoardPins::LED_LUX_ON_THRESHOLD)
+        {
+            ledSetEnabled(true);
+            Serial.printf("[led] auto on (lux=%.1f)\n", static_cast<double>(lux));
+        }
+        else if (ledEnabled && lux > BoardPins::LED_LUX_OFF_THRESHOLD)
+        {
+            ledSetEnabled(false);
+            Serial.printf("[led] auto off (lux=%.1f)\n", static_cast<double>(lux));
+        }
+    }
+
+    // ------------- Console help / handling -------------
+
     void printHelp()
     {
         Serial.println("Commands:");
@@ -98,6 +170,10 @@ namespace
         Serial.println("  irperiodic on|off    - periodic IR snapshot every 500ms");
         Serial.println("  lux                 - print light sensor lux once");
         Serial.println("  luxperiodic on|off   - periodic lux print every 500ms");
+        Serial.println("  led on|off          - manual LED on/off");
+        Serial.println("  ledauto on|off      - enable/disable auto LED control");
+        Serial.println("  ledcolor <r> <g> <b> - set LED color (0..255)");
+        Serial.println("  ledbri <x>          - set LED brightness (0..255)");
     }
 
     void handleConsole()
@@ -199,6 +275,87 @@ namespace
             return;
         }
 
+        // --- LED commands ---
+
+        if (line.equalsIgnoreCase("led on"))
+        {
+            ledAutoEnabled = false;
+            ledSetEnabled(true);
+            return;
+        }
+
+        if (line.equalsIgnoreCase("led off"))
+        {
+            ledAutoEnabled = false;
+            ledSetEnabled(false);
+            return;
+        }
+
+        if (line.equalsIgnoreCase("ledauto on"))
+        {
+            ledAutoEnabled = true;
+            Serial.println("[led] auto on");
+            return;
+        }
+
+        if (line.equalsIgnoreCase("ledauto off"))
+        {
+            ledAutoEnabled = false;
+            Serial.println("[led] auto off");
+            return;
+        }
+
+        if (line.startsWith("ledbri "))
+        {
+            long v = line.substring(7).toInt();
+            if (v < 0)
+                v = 0;
+            if (v > 255)
+                v = 255;
+
+            ledBrightness = static_cast<uint8_t>(v);
+            ledApply();
+            Serial.printf("[led] brightness=%d\n", static_cast<int>(ledBrightness));
+            return;
+        }
+
+        if (line.startsWith("ledcolor "))
+        {
+            const int s1 = line.indexOf(' ');
+            const int s2 = line.indexOf(' ', s1 + 1);
+            const int s3 = line.indexOf(' ', s2 + 1);
+            if (s3 < 0)
+            {
+                Serial.println("[console] usage: ledcolor <r> <g> <b>");
+                return;
+            }
+
+            long r = line.substring(s1 + 1, s2).toInt();
+            long g = line.substring(s2 + 1, s3).toInt();
+            long b = line.substring(s3 + 1).toInt();
+
+            if (r < 0)
+                r = 0;
+            if (r > 255)
+                r = 255;
+            if (g < 0)
+                g = 0;
+            if (g > 255)
+                g = 255;
+            if (b < 0)
+                b = 0;
+            if (b > 255)
+                b = 255;
+
+            ledR = static_cast<uint8_t>(r);
+            ledG = static_cast<uint8_t>(g);
+            ledB = static_cast<uint8_t>(b);
+
+            ledApply();
+            Serial.printf("[led] color=%d,%d,%d\n", static_cast<int>(ledR), static_cast<int>(ledG), static_cast<int>(ledB));
+            return;
+        }
+
         Serial.println("[console] unknown command (type: help)");
     }
 
@@ -287,7 +444,12 @@ namespace App
         const bool ok = lightSensor.begin();
         Serial.printf("[bh1750] init %s (addr=0x%02X)\n", ok ? "ok" : "fail", 0x23);
 
-        Serial.println("[boot] base scaffold + motors + IR + BH1750");
+        ledStrip.begin();
+        ledStrip.clear();
+        ledStrip.setBrightness(ledBrightness);
+        ledStrip.show();
+
+        Serial.println("[boot] base scaffold + motors + IR + BH1750 + WS2812B");
         printHelp();
     }
 
@@ -299,6 +461,7 @@ namespace App
         statusPrintTask(nowMs);
         irUpdateTask(nowMs);
         luxUpdateTask(nowMs);
+        ledAutoTask();
         handleConsole();
 
         delay(1);

@@ -18,5 +18,10 @@ namespace BoardPins
     constexpr gpio_num_t I2C_SDA = GPIO_NUM_21;
     constexpr gpio_num_t I2C_SCL = GPIO_NUM_22;
 
+    constexpr gpio_num_t LED_STRIP_DATA = GPIO_NUM_4;
+
+    constexpr float LED_LUX_ON_THRESHOLD = 25.0f;  // LED ON if darker than this
+    constexpr float LED_LUX_OFF_THRESHOLD = 32.0f; // LED OFF if brighter than this
+
     constexpr bool IR_ACTIVE_LOW = true;
 }
