@@ -16,6 +16,8 @@
 #include "secrets.h"
 #include "net/robot_http_server.h"
 #include "net/backend_config.h"
+#include "net/ws_control_client.h"
+#include "net/backend_config.h"
 
 namespace
 {
@@ -580,6 +582,39 @@ namespace App
                 Serial.printf("[route] selected %s -> %s\n", startNode.c_str(), endNode.c_str());
             });
 
+        WsControlClient::begin(
+            BackendConfig::HOST,
+            BackendConfig::WS_PORT,
+            "/",
+            WsControlClient::Handlers{
+                .onTank = [](const WsControlClient::TankCmd &c)
+                { setTank(c.throttle, c.steer); },
+                .onStop = []()
+                {
+            leftMotor.stop();
+            rightMotor.stop();
+            Serial.println("[ws] stop"); },
+                .onMode = [](const String &m)
+                {
+            // Reuse your existing mode handling by calling the same logic you use for HTTP /mode
+            // If you store driveMode variable, update it here too.
+            Serial.printf("[ws] mode=%s\n", m.c_str()); },
+                .onLedColor = [](uint8_t r, uint8_t g, uint8_t b)
+                {
+            ledAutoEnabled = false;
+            ledR = r; ledG = g; ledB = b;
+            ledSetEnabled(true);
+            ledApply();
+            Serial.printf("[ws] ledcolor=%u,%u,%u\n", r, g, b); },
+                .onVolume = [](uint8_t percent)
+                {
+            audio.setVolume((float)percent / 100.0f);
+            Serial.printf("[ws] volume=%u%%\n", percent); },
+                .onBeep = [](uint16_t hz, uint16_t ms)
+                {
+            audio.playBeep(hz, ms);
+            Serial.printf("[ws] beep %uHz %ums\n", hz, ms); }});
+
         Serial.println("[boot] base scaffold + motors + IR + BH1750 + WS2812B + I2S audio");
         printHelp();
     }
@@ -595,6 +630,7 @@ namespace App
         ledAutoTask();
         handleConsole();
         RobotHttpServer::handle();
+        WsControlClient::loop();
 
         delay(1);
     }
