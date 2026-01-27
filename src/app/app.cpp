@@ -1,5 +1,6 @@
 #include "app/app.h"
 #include "app_config.h"
+#include "board_pins.h"
 
 namespace
 {
@@ -14,7 +15,7 @@ namespace
         lastHeartbeatMs = nowMs;
 
         ledState = !ledState;
-        digitalWrite(static_cast<uint8_t>(AppConfig::HEARTBEAT_LED), ledState ? HIGH : LOW);
+        digitalWrite(static_cast<uint8_t>(BoardPins::HEARTBEAT_LED), ledState ? HIGH : LOW);
     }
 
     void statusPrintTask(uint32_t nowMs)
@@ -37,8 +38,8 @@ namespace App
         Serial.begin(AppConfig::SERIAL_BAUD);
         delay(50);
 
-        pinMode(static_cast<uint8_t>(AppConfig::HEARTBEAT_LED), OUTPUT);
-        digitalWrite(static_cast<uint8_t>(AppConfig::HEARTBEAT_LED), LOW);
+        pinMode(static_cast<uint8_t>(BoardPins::HEARTBEAT_LED), OUTPUT);
+        digitalWrite(static_cast<uint8_t>(BoardPins::HEARTBEAT_LED), LOW);
 
         Serial.println("[boot] firmware-teletable base scaffold");
     }
@@ -46,12 +47,8 @@ namespace App
     void loop()
     {
         const uint32_t nowMs = millis();
-
-        // Cooperative multitasking: small tasks, no blocking delays.
         heartbeatTask(nowMs);
         statusPrintTask(nowMs);
-
-        // Yield a tiny bit to keep WiFi/RTOS healthy.
         delay(1);
     }
 
