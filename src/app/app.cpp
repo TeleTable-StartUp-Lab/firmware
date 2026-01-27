@@ -8,6 +8,8 @@
 #include "drivers/i2s_audio.h"
 #include <Wire.h>
 #include <Adafruit_NeoPixel.h>
+#include "net/wifi_manager.h"
+#include "secrets.h"
 
 namespace
 {
@@ -508,6 +510,9 @@ namespace App
         const bool aok = audio.begin();
         Serial.printf("[audio] init %s\n", aok ? "ok" : "fail");
         audio.setVolume(0.20f);
+
+        const bool wok = WifiManager::begin(Secrets::WIFI_SSID, Secrets::WIFI_PASS, 15000);
+        Serial.printf("[wifi] %s ip=%s\n", wok ? "connected" : "failed", WifiManager::ip().c_str());
 
         Serial.println("[boot] base scaffold + motors + IR + BH1750 + WS2812B + I2S audio");
         printHelp();
