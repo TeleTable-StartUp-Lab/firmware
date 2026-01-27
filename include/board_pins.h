@@ -10,4 +10,10 @@ namespace BoardPins
 
     constexpr gpio_num_t RIGHT_MOTOR_IN1 = GPIO_NUM_27;
     constexpr gpio_num_t RIGHT_MOTOR_IN2 = GPIO_NUM_14;
+
+    constexpr gpio_num_t IR_LEFT = GPIO_NUM_32;
+    constexpr gpio_num_t IR_MIDDLE = GPIO_NUM_33;
+    constexpr gpio_num_t IR_RIGHT = GPIO_NUM_34;
+
+    constexpr bool IR_ACTIVE_LOW = true;
 }
