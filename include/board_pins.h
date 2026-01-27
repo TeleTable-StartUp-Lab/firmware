@@ -15,5 +15,8 @@ namespace BoardPins
     constexpr gpio_num_t IR_MIDDLE = GPIO_NUM_33;
     constexpr gpio_num_t IR_RIGHT = GPIO_NUM_34;
 
+    constexpr gpio_num_t I2C_SDA = GPIO_NUM_21;
+    constexpr gpio_num_t I2C_SCL = GPIO_NUM_22;
+
     constexpr bool IR_ACTIVE_LOW = true;
 }

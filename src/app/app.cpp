@@ -4,12 +4,15 @@
 #include "app/serial_console.h"
 #include "drivers/hbridge_motor.h"
 #include "drivers/obstacle_sensor.h"
+#include "drivers/bh1750_sensor.h"
+#include <Wire.h>
 
 namespace
 {
     uint32_t lastHeartbeatMs = 0;
     uint32_t lastStatusPrintMs = 0;
     uint32_t lastIrPrintMs = 0;
+    uint32_t lastLuxPrintMs = 0;
     bool ledState = false;
 
     SerialConsole console;
@@ -24,23 +27,18 @@ namespace
                              .pwm_hz = 20000,
                              .pwm_resolution_bits = 10});
 
-    ObstacleSensor irLeft({.pin = BoardPins::IR_LEFT,
-                           .active_low = BoardPins::IR_ACTIVE_LOW,
-                           .debounce_ms = 30,
-                           .use_internal_pullup = false});
-
-    ObstacleSensor irMid({.pin = BoardPins::IR_MIDDLE,
-                          .active_low = BoardPins::IR_ACTIVE_LOW,
-                          .debounce_ms = 30,
-                          .use_internal_pullup = false});
-
-    ObstacleSensor irRight({.pin = BoardPins::IR_RIGHT,
-                            .active_low = BoardPins::IR_ACTIVE_LOW,
-                            .debounce_ms = 30,
-                            .use_internal_pullup = false});
+    ObstacleSensor irLeft({.pin = BoardPins::IR_LEFT, .active_low = BoardPins::IR_ACTIVE_LOW, .debounce_ms = 30, .use_internal_pullup = false});
+    ObstacleSensor irMid({.pin = BoardPins::IR_MIDDLE, .active_low = BoardPins::IR_ACTIVE_LOW, .debounce_ms = 30, .use_internal_pullup = false});
+    ObstacleSensor irRight({.pin = BoardPins::IR_RIGHT, .active_low = BoardPins::IR_ACTIVE_LOW, .debounce_ms = 30, .use_internal_pullup = false});
 
     bool irWatch = true;
-    bool irPeriodic = true;
+    bool irPeriodic = false;
+
+    Bh1750Sensor lightSensor({.wire = &Wire,
+                              .address = 0x23, // change to 0x5C if ADDR is high
+                              .sample_period_ms = 250});
+
+    bool luxPeriodic = true;
 
     float clampf(float v, float lo, float hi)
     {
@@ -77,6 +75,16 @@ namespace
                       irRight.isObstacle() ? 1 : 0);
     }
 
+    void printLuxOnce()
+    {
+        if (!lightSensor.hasReading())
+        {
+            Serial.println("[lux] no reading");
+            return;
+        }
+        Serial.printf("[lux] %.1f lx\n", static_cast<double>(lightSensor.lux()));
+    }
+
     void printHelp()
     {
         Serial.println("Commands:");
@@ -88,6 +96,8 @@ namespace
         Serial.println("  ir                  - print IR sensor states once");
         Serial.println("  irwatch on|off       - print IR edge events");
         Serial.println("  irperiodic on|off    - periodic IR snapshot every 500ms");
+        Serial.println("  lux                 - print light sensor lux once");
+        Serial.println("  luxperiodic on|off   - periodic lux print every 500ms");
     }
 
     void handleConsole()
@@ -135,7 +145,6 @@ namespace
                 Serial.println("[console] usage: tank <throttle> <steer>");
                 return;
             }
-
             const float throttle = line.substring(firstSpace + 1, secondSpace).toFloat();
             const float steer = line.substring(secondSpace + 1).toFloat();
             setTank(throttle, steer);
@@ -147,32 +156,46 @@ namespace
             printIrOnce();
             return;
         }
-
         if (line.equalsIgnoreCase("irwatch on"))
         {
             irWatch = true;
             Serial.println("[ir] watch on");
             return;
         }
-
         if (line.equalsIgnoreCase("irwatch off"))
         {
             irWatch = false;
             Serial.println("[ir] watch off");
             return;
         }
-
         if (line.equalsIgnoreCase("irperiodic on"))
         {
             irPeriodic = true;
             Serial.println("[ir] periodic on");
             return;
         }
-
         if (line.equalsIgnoreCase("irperiodic off"))
         {
             irPeriodic = false;
             Serial.println("[ir] periodic off");
+            return;
+        }
+
+        if (line.equalsIgnoreCase("lux"))
+        {
+            printLuxOnce();
+            return;
+        }
+        if (line.equalsIgnoreCase("luxperiodic on"))
+        {
+            luxPeriodic = true;
+            Serial.println("[lux] periodic on");
+            return;
+        }
+        if (line.equalsIgnoreCase("luxperiodic off"))
+        {
+            luxPeriodic = false;
+            Serial.println("[lux] periodic off");
             return;
         }
 
@@ -228,6 +251,17 @@ namespace
             printIrOnce();
         }
     }
+
+    void luxUpdateTask(uint32_t nowMs)
+    {
+        lightSensor.update(nowMs);
+
+        if (luxPeriodic && (nowMs - lastLuxPrintMs >= 500))
+        {
+            lastLuxPrintMs = nowMs;
+            printLuxOnce();
+        }
+    }
 }
 
 namespace App
@@ -248,7 +282,12 @@ namespace App
         irMid.begin();
         irRight.begin();
 
-        Serial.println("[boot] base scaffold + left/right motor + IR sensors");
+        Wire.begin(static_cast<int>(BoardPins::I2C_SDA), static_cast<int>(BoardPins::I2C_SCL));
+
+        const bool ok = lightSensor.begin();
+        Serial.printf("[bh1750] init %s (addr=0x%02X)\n", ok ? "ok" : "fail", 0x23);
+
+        Serial.println("[boot] base scaffold + motors + IR + BH1750");
         printHelp();
     }
 
@@ -259,6 +298,7 @@ namespace App
         heartbeatTask(nowMs);
         statusPrintTask(nowMs);
         irUpdateTask(nowMs);
+        luxUpdateTask(nowMs);
         handleConsole();
 
         delay(1);
