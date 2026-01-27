@@ -3,11 +3,13 @@
 #include "board_pins.h"
 #include "app/serial_console.h"
 #include "drivers/hbridge_motor.h"
+#include "drivers/obstacle_sensor.h"
 
 namespace
 {
     uint32_t lastHeartbeatMs = 0;
     uint32_t lastStatusPrintMs = 0;
+    uint32_t lastIrPrintMs = 0;
     bool ledState = false;
 
     SerialConsole console;
@@ -21,6 +23,24 @@ namespace
                              .in2 = BoardPins::RIGHT_MOTOR_IN2,
                              .pwm_hz = 20000,
                              .pwm_resolution_bits = 10});
+
+    ObstacleSensor irLeft({.pin = BoardPins::IR_LEFT,
+                           .active_low = BoardPins::IR_ACTIVE_LOW,
+                           .debounce_ms = 30,
+                           .use_internal_pullup = false});
+
+    ObstacleSensor irMid({.pin = BoardPins::IR_MIDDLE,
+                          .active_low = BoardPins::IR_ACTIVE_LOW,
+                          .debounce_ms = 30,
+                          .use_internal_pullup = false});
+
+    ObstacleSensor irRight({.pin = BoardPins::IR_RIGHT,
+                            .active_low = BoardPins::IR_ACTIVE_LOW,
+                            .debounce_ms = 30,
+                            .use_internal_pullup = false});
+
+    bool irWatch = true;
+    bool irPeriodic = true;
 
     float clampf(float v, float lo, float hi)
     {
@@ -49,6 +69,14 @@ namespace
                       static_cast<double>(right));
     }
 
+    void printIrOnce()
+    {
+        Serial.printf("[ir] L=%d M=%d R=%d (1=obstacle)\n",
+                      irLeft.isObstacle() ? 1 : 0,
+                      irMid.isObstacle() ? 1 : 0,
+                      irRight.isObstacle() ? 1 : 0);
+    }
+
     void printHelp()
     {
         Serial.println("Commands:");
@@ -57,6 +85,9 @@ namespace
         Serial.println("  r <v>               - set right motor [-1.0..1.0]");
         Serial.println("  tank <t> <s>        - set throttle/steer [-1.0..1.0]");
         Serial.println("  stop                - stop both motors (coast)");
+        Serial.println("  ir                  - print IR sensor states once");
+        Serial.println("  irwatch on|off       - print IR edge events");
+        Serial.println("  irperiodic on|off    - periodic IR snapshot every 500ms");
     }
 
     void handleConsole()
@@ -111,6 +142,40 @@ namespace
             return;
         }
 
+        if (line.equalsIgnoreCase("ir"))
+        {
+            printIrOnce();
+            return;
+        }
+
+        if (line.equalsIgnoreCase("irwatch on"))
+        {
+            irWatch = true;
+            Serial.println("[ir] watch on");
+            return;
+        }
+
+        if (line.equalsIgnoreCase("irwatch off"))
+        {
+            irWatch = false;
+            Serial.println("[ir] watch off");
+            return;
+        }
+
+        if (line.equalsIgnoreCase("irperiodic on"))
+        {
+            irPeriodic = true;
+            Serial.println("[ir] periodic on");
+            return;
+        }
+
+        if (line.equalsIgnoreCase("irperiodic off"))
+        {
+            irPeriodic = false;
+            Serial.println("[ir] periodic off");
+            return;
+        }
+
         Serial.println("[console] unknown command (type: help)");
     }
 
@@ -134,6 +199,35 @@ namespace
                       static_cast<unsigned long>(nowMs),
                       static_cast<unsigned int>(ESP.getFreeHeap()));
     }
+
+    void irUpdateTask(uint32_t nowMs)
+    {
+        irLeft.update(nowMs);
+        irMid.update(nowMs);
+        irRight.update(nowMs);
+
+        if (irWatch)
+        {
+            if (irLeft.roseObstacle())
+                Serial.println("[ir] left obstacle");
+            if (irLeft.fellObstacle())
+                Serial.println("[ir] left clear");
+            if (irMid.roseObstacle())
+                Serial.println("[ir] middle obstacle");
+            if (irMid.fellObstacle())
+                Serial.println("[ir] middle clear");
+            if (irRight.roseObstacle())
+                Serial.println("[ir] right obstacle");
+            if (irRight.fellObstacle())
+                Serial.println("[ir] right clear");
+        }
+
+        if (irPeriodic && (nowMs - lastIrPrintMs >= 500))
+        {
+            lastIrPrintMs = nowMs;
+            printIrOnce();
+        }
+    }
 }
 
 namespace App
@@ -150,7 +244,11 @@ namespace App
         leftMotor.begin();
         rightMotor.begin();
 
-        Serial.println("[boot] base scaffold + left/right motor test");
+        irLeft.begin();
+        irMid.begin();
+        irRight.begin();
+
+        Serial.println("[boot] base scaffold + left/right motor + IR sensors");
         printHelp();
     }
 
@@ -160,6 +258,7 @@ namespace App
 
         heartbeatTask(nowMs);
         statusPrintTask(nowMs);
+        irUpdateTask(nowMs);
         handleConsole();
 
         delay(1);
