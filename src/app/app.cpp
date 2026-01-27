@@ -14,6 +14,8 @@
 #include "net/backend_client.h"
 #include "net/backend_config.h"
 #include "secrets.h"
+#include "net/robot_http_server.h"
+#include "net/backend_config.h"
 
 namespace
 {
@@ -481,6 +483,13 @@ namespace
             printLuxOnce();
         }
     }
+
+    RobotHttpServer::DriveMode driveMode = RobotHttpServer::DriveMode::IDLE;
+
+    String lastRouteStart;
+    String lastRouteEnd;
+    String positionStr = "";
+
 }
 
 namespace App
@@ -523,6 +532,53 @@ namespace App
             const bool regOk = BackendClient::registerRobot(BackendConfig::ROBOT_PORT);
             Serial.printf("[backend] register %s\n", regOk ? "ok" : "fail");
         }
+        RobotHttpServer::begin(
+            BackendConfig::ROBOT_PORT,
+            []() -> RobotHttpServer::StatusSnapshot
+            {
+                RobotHttpServer::StatusSnapshot s{};
+                s.systemHealth = "OK";
+                s.batteryLevel = 85; // TODO: real battery later
+                s.driveMode = driveMode;
+                s.cargoStatus = "IN_TRANSIT";
+
+                s.lastRouteStart = lastRouteStart.length() ? lastRouteStart.c_str() : nullptr;
+                s.lastRouteEnd = lastRouteEnd.length() ? lastRouteEnd.c_str() : nullptr;
+                s.position = positionStr.length() ? positionStr.c_str() : nullptr;
+
+                s.irLeft = irLeft.isObstacle();
+                s.irMid = irMid.isObstacle();
+                s.irRight = irRight.isObstacle();
+
+                s.luxValid = lightSensor.hasReading();
+                s.lux = s.luxValid ? lightSensor.lux() : 0.0f;
+
+                s.ledEnabled = ledEnabled;
+                s.ledAutoEnabled = ledAutoEnabled;
+
+                s.audioVolume = audio.volume();
+                return s;
+            },
+            [](RobotHttpServer::DriveMode m)
+            {
+                driveMode = m;
+
+                if (driveMode == RobotHttpServer::DriveMode::IDLE)
+                {
+                    leftMotor.stop();
+                    rightMotor.stop();
+                }
+
+                Serial.printf("[mode] set to %s\n",
+                              (driveMode == RobotHttpServer::DriveMode::IDLE) ? "IDLE" : (driveMode == RobotHttpServer::DriveMode::MANUAL) ? "MANUAL"
+                                                                                                                                           : "AUTO");
+            },
+            [](const String &startNode, const String &endNode)
+            {
+                lastRouteStart = startNode;
+                lastRouteEnd = endNode;
+                Serial.printf("[route] selected %s -> %s\n", startNode.c_str(), endNode.c_str());
+            });
 
         Serial.println("[boot] base scaffold + motors + IR + BH1750 + WS2812B + I2S audio");
         printHelp();
@@ -538,6 +594,7 @@ namespace App
         luxUpdateTask(nowMs);
         ledAutoTask();
         handleConsole();
+        RobotHttpServer::handle();
 
         delay(1);
     }
