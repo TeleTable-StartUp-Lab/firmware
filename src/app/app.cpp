@@ -10,6 +10,10 @@
 #include <Adafruit_NeoPixel.h>
 #include "net/wifi_manager.h"
 #include "secrets.h"
+#include "net/wifi_manager.h"
+#include "net/backend_client.h"
+#include "net/backend_config.h"
+#include "secrets.h"
 
 namespace
 {
@@ -513,6 +517,12 @@ namespace App
 
         const bool wok = WifiManager::begin(Secrets::WIFI_SSID, Secrets::WIFI_PASS, 15000);
         Serial.printf("[wifi] %s ip=%s\n", wok ? "connected" : "failed", WifiManager::ip().c_str());
+
+        if (wok)
+        {
+            const bool regOk = BackendClient::registerRobot(BackendConfig::ROBOT_PORT);
+            Serial.printf("[backend] register %s\n", regOk ? "ok" : "fail");
+        }
 
         Serial.println("[boot] base scaffold + motors + IR + BH1750 + WS2812B + I2S audio");
         printHelp();
