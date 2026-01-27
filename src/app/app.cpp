@@ -17,12 +17,46 @@ namespace
                             .pwm_hz = 20000,
                             .pwm_resolution_bits = 10});
 
+    HBridgeMotor rightMotor({.in1 = BoardPins::RIGHT_MOTOR_IN1,
+                             .in2 = BoardPins::RIGHT_MOTOR_IN2,
+                             .pwm_hz = 20000,
+                             .pwm_resolution_bits = 10});
+
+    float clampf(float v, float lo, float hi)
+    {
+        if (v < lo)
+            return lo;
+        if (v > hi)
+            return hi;
+        return v;
+    }
+
+    void setTank(float throttle, float steer)
+    {
+        throttle = clampf(throttle, -1.0f, 1.0f);
+        steer = clampf(steer, -1.0f, 1.0f);
+
+        const float left = clampf(throttle + steer, -1.0f, 1.0f);
+        const float right = clampf(throttle - steer, -1.0f, 1.0f);
+
+        leftMotor.set(left);
+        rightMotor.set(right);
+
+        Serial.printf("[tank] throttle=%.3f steer=%.3f => L=%.3f R=%.3f\n",
+                      static_cast<double>(throttle),
+                      static_cast<double>(steer),
+                      static_cast<double>(left),
+                      static_cast<double>(right));
+    }
+
     void printHelp()
     {
         Serial.println("Commands:");
-        Serial.println("  help        - show commands");
-        Serial.println("  m <v>       - set motor [-1.0..1.0] (forward/reverse)");
-        Serial.println("  stop        - motor coast stop");
+        Serial.println("  help                - show commands");
+        Serial.println("  l <v>               - set left motor [-1.0..1.0]");
+        Serial.println("  r <v>               - set right motor [-1.0..1.0]");
+        Serial.println("  tank <t> <s>        - set throttle/steer [-1.0..1.0]");
+        Serial.println("  stop                - stop both motors (coast)");
     }
 
     void handleConsole()
@@ -40,15 +74,40 @@ namespace
         if (line.equalsIgnoreCase("stop"))
         {
             leftMotor.stop();
+            rightMotor.stop();
             Serial.println("[motor] stop");
             return;
         }
 
-        if (line.startsWith("m "))
+        if (line.startsWith("l "))
         {
             const float v = line.substring(2).toFloat();
             leftMotor.set(v);
-            Serial.printf("[motor] set=%.3f\n", static_cast<double>(v));
+            Serial.printf("[motor] left=%.3f\n", static_cast<double>(v));
+            return;
+        }
+
+        if (line.startsWith("r "))
+        {
+            const float v = line.substring(2).toFloat();
+            rightMotor.set(v);
+            Serial.printf("[motor] right=%.3f\n", static_cast<double>(v));
+            return;
+        }
+
+        if (line.startsWith("tank "))
+        {
+            const int firstSpace = line.indexOf(' ');
+            const int secondSpace = line.indexOf(' ', firstSpace + 1);
+            if (secondSpace < 0)
+            {
+                Serial.println("[console] usage: tank <throttle> <steer>");
+                return;
+            }
+
+            const float throttle = line.substring(firstSpace + 1, secondSpace).toFloat();
+            const float steer = line.substring(secondSpace + 1).toFloat();
+            setTank(throttle, steer);
             return;
         }
 
@@ -89,8 +148,9 @@ namespace App
 
         console.begin();
         leftMotor.begin();
+        rightMotor.begin();
 
-        Serial.println("[boot] base scaffold + left motor test");
+        Serial.println("[boot] base scaffold + left/right motor test");
         printHelp();
     }
 
