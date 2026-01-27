@@ -1,5 +1,12 @@
 # Firmware
 
+## Initialisierung & Registrierung
+
+Der Roboter verbindet sich beim Start mit dem Backend, um seine Verfügbarkeit bekannt zu geben. 
+
+*   **Registrierung:** `POST http://<BACKEND_HOST>:<BACKEND_PORT>/table/register` mit Payload `{"port": <ROBOT_PORT>}`.
+*   **Websocket:** Verbindung zu `ws://<BACKEND_HOST>:<BACKEND_PORT>/ws/robot/control`.
+
 ## Routen: Backend Roboter
 
 | B2R Route     | Methode | Zweck für das Backend                                                                                                                                               | C2B Entsprechung          |

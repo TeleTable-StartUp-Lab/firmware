@@ -1,12 +1,10 @@
 import sys
 import time
-import socket
 import threading
 import json
 import logging
 import os
 from datetime import datetime, timezone
-# Install requirements if missing (mock check, assume user handles it or run pip install -r requirements_robot.txt)
 
 try:
     import websocket
@@ -18,9 +16,8 @@ except ImportError:
 
 # Configuration
 # Allow overriding via environment variables
-BACKEND_HOST = os.environ.get("BACKEND_HOST", "localhost")
+BACKEND_HOST = os.environ.get("BACKEND_HOST", "10.10.31.13")
 BACKEND_PORT = os.environ.get("BACKEND_PORT", "3003")
-BACKEND_UDP_PORT = int(os.environ.get("BACKEND_UDP_PORT", 3001))
 
 BACKEND_HTTP_URL = f"http://{BACKEND_HOST}:{BACKEND_PORT}"
 BACKEND_WS_URL = f"ws://{BACKEND_HOST}:{BACKEND_PORT}/ws/robot/control"
@@ -78,27 +75,26 @@ def run_flask():
     app.run(host="0.0.0.0", port=MY_PORT, debug=False, use_reloader=False)
 
 
-def send_udp_broadcast():
-    logger.info(f"Sending UDP broadcast to backend port {BACKEND_UDP_PORT}...")
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-
-    message = json.dumps({"type": "announce", "port": MY_PORT})
-
+def register_with_backend():
+    logger.info("Registering with backend...")
+    headers = {"X-Api-Key": API_KEY, "Content-Type": "application/json"}
+    payload = {"port": MY_PORT}
     try:
-        sock.sendto(message.encode("utf-8"), ("<broadcast>", BACKEND_UDP_PORT))
-        logger.info("UDP Broadcast sent.")
+        resp = requests.post(
+            f"{BACKEND_HTTP_URL}/table/register", json=payload, headers=headers
+        )
+        if resp.status_code == 200:
+            logger.info("Successfully registered with backend.")
+        else:
+            logger.warning(f"Registration failed: {resp.status_code} - {resp.text}")
     except Exception as e:
-        logger.error(f"Failed to send UDP broadcast: {e}")
-    finally:
-        sock.close()
+        logger.error(f"Function register_with_backend failed: {e}")
 
 
 def send_client_event(event):
     now = datetime.now(timezone.utc)
 
-    robot_event = {"event": event,
-                   "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ")}
+    robot_event = {"event": event, "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ")}
 
     headers = {"X-Api-Key": API_KEY, "Content-Type": "application/json"}
     try:
@@ -109,8 +105,7 @@ def send_client_event(event):
         if resp.status_code == 200:
             logger.info("Successfully sent event backend")
         else:
-            logger.warning(f"Failed sent event: {
-                           resp.status_code} - {resp.text}")
+            logger.warning(f"Failed sent event: {resp.status_code} - {resp.text}")
     except Exception as e:
         logger.error(f"Exception sending event: {e}")
 
@@ -184,8 +179,7 @@ def update_backend_state():
         if resp.status_code == 200:
             logger.info("Successfully updated state to backend")
         else:
-            logger.warning(f"Failed to update state: {
-                           resp.status_code} - {resp.text}")
+            logger.warning(f"Failed to update state: {resp.status_code} - {resp.text}")
     except Exception as e:
         logger.error(f"Exception updating state: {e}")
 
@@ -219,19 +213,15 @@ if __name__ == "__main__":
     # Wait for server to start
     time.sleep(1)
 
-    # Send UDP broadcast periodically or just once?
-    # Usually once on startup is enough if backend is running.
-    # But if backend restarts, it loses the IP.
-    # Let's send it periodically in a separate thread, just to be robust for testing.
-
-    def announce_loop():
+    # Register loop (every 30s to be safe, or just rely on manual re-announcement)
+    def register_loop():
         while True:
-            send_udp_broadcast()
-            time.sleep(10)  # Announce every 10 seconds
+            register_with_backend()
+            time.sleep(30) 
 
-    t_announce = threading.Thread(target=announce_loop)
-    t_announce.daemon = True
-    t_announce.start()
+    t_reg = threading.Thread(target=register_loop)
+    t_reg.daemon = True
+    t_reg.start()
 
     # Start WebSocket Client (main thread)
     run_websocket()
