@@ -18,6 +18,7 @@
 #include "net/backend_config.h"
 #include "net/ws_control_client.h"
 #include "net/backend_config.h"
+#include "drivers/oled_display.h"
 
 namespace
 {
@@ -169,6 +170,53 @@ namespace
             ledSetEnabled(false);
             Serial.printf("[led] auto off (lux=%.1f)\n", static_cast<double>(lux));
         }
+    }
+
+    OledDisplay oled({.wire = &Wire, .address = 0x3C, .width = 128, .height = 64, .reset_pin = -1});
+    uint32_t lastOledMs = 0;
+
+    void oledBootScreen()
+    {
+        String l[6];
+        l[0] = "Firmware Teletable";
+        l[1] = "I2C: BH1750 0x23";
+        l[2] = "I2C: OLED   0x3C";
+        l[3] = "Booting...";
+        l[4] = "";
+        l[5] = "";
+        oled.setLines(l, 6);
+        oled.show();
+    }
+
+    void oledUpdateTask(uint32_t nowMs)
+    {
+        if (!oled.isOk())
+            return;
+
+        if (nowMs - lastOledMs < 500)
+            return;
+        lastOledMs = nowMs;
+
+        String l[6];
+
+        l[0] = "Firmware Teletable";
+
+        if (WifiManager::isConnected())
+            l[1] = "WiFi: " + WifiManager::ip();
+        else
+            l[1] = "WiFi: disconnected";
+
+        if (lightSensor.hasReading())
+            l[2] = "Lux: " + String(lightSensor.lux(), 1);
+        else
+            l[2] = "Lux: n/a";
+
+        l[3] = String("LED: ") + (ledEnabled ? "on" : "off") + (ledAutoEnabled ? " (A)" : " (M)");
+        l[4] = String("WS: ") + (WsControlClient::isConnected() ? "connected" : "offline");
+        l[5] = "";
+
+        oled.setLines(l, 6);
+        oled.show();
     }
 
     // ------------- Console help / handling -------------
@@ -514,6 +562,11 @@ namespace App
 
         Wire.begin(static_cast<int>(BoardPins::I2C_SDA), static_cast<int>(BoardPins::I2C_SCL));
 
+        const bool dok = oled.begin();
+        Serial.printf("[oled] init %s (addr=0x%02X)\n", dok ? "ok" : "fail", 0x3C);
+        if (dok)
+            oledBootScreen();
+
         const bool ok = lightSensor.begin();
         Serial.printf("[bh1750] init %s (addr=0x%02X)\n", ok ? "ok" : "fail", 0x23);
 
@@ -617,6 +670,28 @@ namespace App
 
         Serial.println("[boot] base scaffold + motors + IR + BH1750 + WS2812B + I2S audio");
         printHelp();
+
+        auto scanI2C = []()
+        {
+            Serial.println("[i2c] scanning...");
+            uint8_t count = 0;
+            for (uint8_t addr = 1; addr < 127; addr++)
+            {
+                Wire.beginTransmission(addr);
+                if (Wire.endTransmission() == 0)
+                {
+                    Serial.printf("[i2c] found 0x%02X\n", addr);
+                    count++;
+                }
+            }
+            if (!count)
+                Serial.println("[i2c] no devices found");
+        };
+
+        Wire.begin(static_cast<int>(BoardPins::I2C_SDA), static_cast<int>(BoardPins::I2C_SCL));
+        Wire.setClock(100000); // sicherer Start
+        delay(50);
+        scanI2C();
     }
 
     void loop()
@@ -627,6 +702,7 @@ namespace App
         statusPrintTask(nowMs);
         irUpdateTask(nowMs);
         luxUpdateTask(nowMs);
+        oledUpdateTask(nowMs);
         ledAutoTask();
         handleConsole();
         RobotHttpServer::handle();
