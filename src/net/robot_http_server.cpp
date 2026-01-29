@@ -212,6 +212,14 @@ namespace RobotHttpServer
         sendJson(200, doc);
     }
 
+    static void handleHealth()
+    {
+        JsonDocument doc;
+        doc["status"] = "ok";
+        doc["message"] = "Robot is online";
+        sendJson(200, doc);
+    }
+
     void begin(uint16_t port, StatusProvider statusProvider, ModeSetter modeSetter, RouteSetter routeSetter)
     {
         g_statusProvider = statusProvider;
@@ -230,6 +238,7 @@ namespace RobotHttpServer
         g_server->on("/nodes", HTTP_GET, handleNodes);
         g_server->on("/mode", HTTP_POST, handleMode);
         g_server->on("/select", HTTP_POST, handleSelect);
+        g_server->on("/health", HTTP_GET, handleHealth);
 
         g_server->onNotFound([]()
                              {

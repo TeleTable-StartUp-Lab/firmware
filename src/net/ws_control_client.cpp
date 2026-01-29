@@ -1,158 +1,169 @@
 #include "net/ws_control_client.h"
 
+#include "net/backend_config.h"
+#include <Arduino.h>
+#include <ArduinoJson.h>
 #include <WiFi.h>
 #include <WebSocketsClient.h>
-#include <ArduinoJson.h>
 
-namespace WsControlClient
+namespace
 {
+    WebSocketsClient g_ws;
+    WsControlClient::Handlers g_handlers{};
+    bool g_connected = false;
 
-    static WebSocketsClient ws;
-    static Handlers h;
-    static bool connected = false;
+    uint32_t g_lastReconnectMs = 0;
+    constexpr uint32_t RECONNECT_INTERVAL_MS = 3000;
 
-    static void handleText(const char *payload, size_t length)
+    void handleJsonMessage(const char *payload, size_t len)
     {
         JsonDocument doc;
-        const DeserializationError err = deserializeJson(doc, payload, length);
+        DeserializationError err = deserializeJson(doc, payload, len);
         if (err)
         {
-            Serial.println("[ws] invalid json");
+            Serial.printf("[ws] json parse error: %s\n", err.c_str());
             return;
         }
 
-        const String type = doc["type"] | "";
-        if (type.length() == 0)
+        const char *cmd = doc["command"] | "";
+        if (!cmd || cmd[0] == '\0')
         {
-            Serial.println("[ws] missing type");
+            Serial.println("[ws] missing 'command'");
             return;
         }
 
-        if (type == "stop")
+        if (strcmp(cmd, "NAVIGATE") == 0)
         {
-            if (h.onStop)
-                h.onStop();
+            const String start = String((const char *)(doc["start"] | ""));
+            const String dest = String((const char *)(doc["destination"] | ""));
+
+            if (g_handlers.onNavigate)
+                g_handlers.onNavigate(start, dest);
             return;
         }
 
-        if (type == "tank")
+        if (strcmp(cmd, "DRIVE_COMMAND") == 0)
         {
-            TankCmd cmd{};
-            cmd.throttle = doc["throttle"] | 0.0f;
-            cmd.steer = doc["steer"] | 0.0f;
-            if (h.onTank)
-                h.onTank(cmd);
+            const float linear = doc["linear_velocity"] | 0.0f;
+            const float angular = doc["angular_velocity"] | 0.0f;
+
+            if (g_handlers.onDriveCommand)
+                g_handlers.onDriveCommand(linear, angular);
             return;
         }
 
-        if (type == "mode")
+        if (strcmp(cmd, "STOP") == 0)
         {
-            const String mode = doc["mode"] | "";
-            if (h.onMode)
-                h.onMode(mode);
+            if (g_handlers.onStop)
+                g_handlers.onStop();
             return;
         }
 
-        if (type == "ledcolor")
+        if (strcmp(cmd, "SET_MODE") == 0)
         {
-            int r = doc["r"] | 0;
-            int g = doc["g"] | 0;
-            int b = doc["b"] | 0;
-            if (r < 0)
-                r = 0;
-            if (r > 255)
-                r = 255;
-            if (g < 0)
-                g = 0;
-            if (g > 255)
-                g = 255;
-            if (b < 0)
-                b = 0;
-            if (b > 255)
-                b = 255;
-            if (h.onLedColor)
-                h.onLedColor((uint8_t)r, (uint8_t)g, (uint8_t)b);
+            const String mode = String((const char *)(doc["mode"] | ""));
+            if (g_handlers.onSetMode)
+                g_handlers.onSetMode(mode);
             return;
         }
 
-        if (type == "vol")
-        {
-            int p = doc["percent"] | 0;
-            if (p < 0)
-                p = 0;
-            if (p > 100)
-                p = 100;
-            if (h.onVolume)
-                h.onVolume((uint8_t)p);
-            return;
-        }
-
-        if (type == "beep")
-        {
-            int hz = doc["hz"] | 880;
-            int ms = doc["ms"] | 150;
-            if (hz < 50)
-                hz = 50;
-            if (hz > 5000)
-                hz = 5000;
-            if (ms < 10)
-                ms = 10;
-            if (ms > 2000)
-                ms = 2000;
-            if (h.onBeep)
-                h.onBeep((uint16_t)hz, (uint16_t)ms);
-            return;
-        }
-
-        Serial.printf("[ws] unknown type=%s\n", type.c_str());
+        Serial.printf("[ws] unknown command: %s\n", cmd);
+        if (g_handlers.onUnknownCommand)
+            g_handlers.onUnknownCommand(String(cmd), doc);
     }
 
-    static void onEvent(WStype_t type, uint8_t *payload, size_t length)
+    void wsEvent(WStype_t type, uint8_t *payload, size_t length)
     {
         switch (type)
         {
         case WStype_CONNECTED:
-            connected = true;
+            g_connected = true;
             Serial.println("[ws] connected");
-            ws.sendTXT("{\"type\":\"robot\",\"msg\":\"hello\"}");
+            if (g_handlers.onConnected)
+                g_handlers.onConnected();
             break;
 
         case WStype_DISCONNECTED:
-            connected = false;
+            g_connected = false;
             Serial.println("[ws] disconnected");
+            if (g_handlers.onDisconnected)
+                g_handlers.onDisconnected();
             break;
 
         case WStype_TEXT:
-            handleText((const char *)payload, length);
+            if (payload && length > 0)
+            {
+                Serial.printf("[ws] rx: %.*s\n", (int)length, (const char *)payload);
+                handleJsonMessage((const char *)payload, length);
+            }
+            break;
+
+        case WStype_ERROR:
+            Serial.println("[ws] error");
             break;
 
         default:
             break;
         }
     }
+}
 
-    void begin(const char *host, uint16_t port, const char *path, const Handlers &handlers)
+namespace WsControlClient
+{
+    void begin(const Handlers &handlers)
     {
-        h = handlers;
+        g_handlers = handlers;
 
-        ws.begin(host, port, path);
-        ws.onEvent(onEvent);
-        ws.setReconnectInterval(2000);
-        //  ws.enableHeartbeat(15000, 3000, 2);
-
-        Serial.printf("[ws] connecting to ws://%s:%u%s\n", host, (unsigned)port, path);
+        g_ws.begin(BackendConfig::HOST, BackendConfig::PORT, BackendConfig::WS_PATH);
+        g_ws.onEvent(wsEvent);
+        g_ws.setReconnectInterval(RECONNECT_INTERVAL_MS);
+        g_ws.enableHeartbeat(15000, 3000, 2);
     }
 
     void loop()
     {
+        g_ws.loop();
+
         if (WiFi.status() != WL_CONNECTED)
             return;
-        ws.loop();
+
+        const uint32_t nowMs = millis();
+        if (!g_connected && (nowMs - g_lastReconnectMs) >= RECONNECT_INTERVAL_MS)
+        {
+            g_lastReconnectMs = nowMs;
+            g_ws.disconnect();
+            g_ws.begin(BackendConfig::HOST, BackendConfig::PORT, BackendConfig::WS_PATH);
+        }
     }
 
     bool isConnected()
     {
-        return connected;
+        return g_connected;
     }
 
+    bool sendJson(const JsonDocument &doc)
+    {
+        if (!g_connected)
+            return false;
+
+        String out;
+        serializeJson(doc, out);
+        g_ws.sendTXT(out.c_str());
+        return true;
+    }
+
+    bool sendText(const String &text)
+    {
+        if (!g_connected)
+            return false;
+
+        g_ws.sendTXT(text.c_str());
+        return true;
+    }
+
+    void disconnect()
+    {
+        g_ws.disconnect();
+        g_connected = false;
+    }
 }

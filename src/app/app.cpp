@@ -1,32 +1,34 @@
 #include "app/app.h"
+#include "app/serial_console.h"
 #include "app_config.h"
 #include "board_pins.h"
-#include "app/serial_console.h"
-#include "drivers/hbridge_motor.h"
-#include "drivers/obstacle_sensor.h"
-#include "drivers/bh1750_sensor.h"
-#include "drivers/i2s_audio.h"
-#include <Wire.h>
-#include <Adafruit_NeoPixel.h>
-#include "net/wifi_manager.h"
 #include "secrets.h"
-#include "net/wifi_manager.h"
+
+#include "drivers/bh1750_sensor.h"
+#include "drivers/hbridge_motor.h"
+#include "drivers/i2s_audio.h"
+#include "drivers/obstacle_sensor.h"
+#include "drivers/oled_display.h"
+
 #include "net/backend_client.h"
 #include "net/backend_config.h"
-#include "secrets.h"
 #include "net/robot_http_server.h"
-#include "net/backend_config.h"
+#include "net/wifi_manager.h"
 #include "net/ws_control_client.h"
-#include "net/backend_config.h"
-#include "drivers/oled_display.h"
+
+#include <Adafruit_NeoPixel.h>
+#include <Wire.h>
 
 namespace
 {
+    RobotHttpServer::DriveMode driveMode = RobotHttpServer::DriveMode::IDLE;
     uint32_t lastHeartbeatMs = 0;
     uint32_t lastStatusPrintMs = 0;
     uint32_t lastIrPrintMs = 0;
     uint32_t lastLuxPrintMs = 0;
-    bool ledState = false;
+
+    uint32_t lastBackendRegisterMs = 0;
+    uint32_t lastBackendStateMs = 0;
 
     SerialConsole console;
 
@@ -48,7 +50,7 @@ namespace
     bool irPeriodic = false;
 
     Bh1750Sensor lightSensor({.wire = &Wire,
-                              .address = 0x23, // change to 0x5C if ADDR is high
+                              .address = 0x23,
                               .sample_period_ms = 250});
 
     bool luxPeriodic = true;
@@ -154,7 +156,6 @@ namespace
     {
         if (!ledAutoEnabled)
             return;
-
         if (!lightSensor.hasReading())
             return;
 
@@ -171,6 +172,8 @@ namespace
             Serial.printf("[led] auto off (lux=%.1f)\n", static_cast<double>(lux));
         }
     }
+
+    // ---------------- OLED ----------------
 
     OledDisplay oled({.wire = &Wire, .address = 0x3C, .width = 128, .height = 64, .reset_pin = -1});
     uint32_t lastOledMs = 0;
@@ -224,23 +227,23 @@ namespace
     void printHelp()
     {
         Serial.println("Commands:");
-        Serial.println("  help                - show commands");
-        Serial.println("  l <v>               - set left motor [-1.0..1.0]");
-        Serial.println("  r <v>               - set right motor [-1.0..1.0]");
-        Serial.println("  tank <t> <s>        - set throttle/steer [-1.0..1.0]");
-        Serial.println("  stop                - stop both motors (coast)");
-        Serial.println("  ir                  - print IR sensor states once");
-        Serial.println("  irwatch on|off       - print IR edge events");
-        Serial.println("  irperiodic on|off    - periodic IR snapshot every 500ms");
-        Serial.println("  lux                 - print light sensor lux once");
-        Serial.println("  luxperiodic on|off   - periodic lux print every 500ms");
-        Serial.println("  led on|off          - manual LED on/off");
-        Serial.println("  ledauto on|off      - enable/disable auto LED control");
+        Serial.println("  help                 - show commands");
+        Serial.println("  l <v>                - set left motor [-1.0..1.0]");
+        Serial.println("  r <v>                - set right motor [-1.0..1.0]");
+        Serial.println("  tank <t> <s>         - set throttle/steer [-1.0..1.0]");
+        Serial.println("  stop                 - stop both motors (coast)");
+        Serial.println("  ir                   - print IR sensor states once");
+        Serial.println("  irwatch on|off        - print IR edge events");
+        Serial.println("  irperiodic on|off     - periodic IR snapshot every 500ms");
+        Serial.println("  lux                  - print light sensor lux once");
+        Serial.println("  luxperiodic on|off    - periodic lux print every 500ms");
+        Serial.println("  led on|off           - manual LED on/off");
+        Serial.println("  ledauto on|off       - enable/disable auto LED control");
         Serial.println("  ledcolor <r> <g> <b> - set LED color (0..255)");
-        Serial.println("  ledbri <x>          - set LED brightness (0..255)");
-        Serial.println("  vol <0..100>        - set audio volume percent");
-        Serial.println("  beep                - play short test beep");
-        Serial.println("  beep <hz> <ms>      - play beep with frequency and duration");
+        Serial.println("  ledbri <x>           - set LED brightness (0..255)");
+        Serial.println("  vol <0..100>         - set audio volume percent");
+        Serial.println("  beep                 - play short test beep");
+        Serial.println("  beep <hz> <ms>       - play beep with frequency and duration");
     }
 
     void handleConsole()
@@ -255,42 +258,29 @@ namespace
             return;
         }
 
+        float a = 0.0f;
+        float b = 0.0f;
+        int ia = 0, ib = 0, ic = 0;
+
+        if (sscanf(line.c_str(), "l %f", &a) == 1)
+        {
+            leftMotor.set(clampf(a, -1.0f, 1.0f));
+            return;
+        }
+        if (sscanf(line.c_str(), "r %f", &a) == 1)
+        {
+            rightMotor.set(clampf(a, -1.0f, 1.0f));
+            return;
+        }
+        if (sscanf(line.c_str(), "tank %f %f", &a, &b) == 2)
+        {
+            setTank(a, b);
+            return;
+        }
         if (line.equalsIgnoreCase("stop"))
         {
             leftMotor.stop();
             rightMotor.stop();
-            Serial.println("[motor] stop");
-            return;
-        }
-
-        if (line.startsWith("l "))
-        {
-            const float v = line.substring(2).toFloat();
-            leftMotor.set(v);
-            Serial.printf("[motor] left=%.3f\n", static_cast<double>(v));
-            return;
-        }
-
-        if (line.startsWith("r "))
-        {
-            const float v = line.substring(2).toFloat();
-            rightMotor.set(v);
-            Serial.printf("[motor] right=%.3f\n", static_cast<double>(v));
-            return;
-        }
-
-        if (line.startsWith("tank "))
-        {
-            const int firstSpace = line.indexOf(' ');
-            const int secondSpace = line.indexOf(' ', firstSpace + 1);
-            if (secondSpace < 0)
-            {
-                Serial.println("[console] usage: tank <throttle> <steer>");
-                return;
-            }
-            const float throttle = line.substring(firstSpace + 1, secondSpace).toFloat();
-            const float steer = line.substring(secondSpace + 1).toFloat();
-            setTank(throttle, steer);
             return;
         }
 
@@ -299,28 +289,16 @@ namespace
             printIrOnce();
             return;
         }
-        if (line.equalsIgnoreCase("irwatch on"))
+        if (sscanf(line.c_str(), "irwatch %d", &ia) == 1)
         {
-            irWatch = true;
-            Serial.println("[ir] watch on");
+            irWatch = (ia != 0);
+            Serial.printf("[ir] watch %s\n", irWatch ? "on" : "off");
             return;
         }
-        if (line.equalsIgnoreCase("irwatch off"))
+        if (sscanf(line.c_str(), "irperiodic %d", &ia) == 1)
         {
-            irWatch = false;
-            Serial.println("[ir] watch off");
-            return;
-        }
-        if (line.equalsIgnoreCase("irperiodic on"))
-        {
-            irPeriodic = true;
-            Serial.println("[ir] periodic on");
-            return;
-        }
-        if (line.equalsIgnoreCase("irperiodic off"))
-        {
-            irPeriodic = false;
-            Serial.println("[ir] periodic off");
+            irPeriodic = (ia != 0);
+            Serial.printf("[ir] periodic %s\n", irPeriodic ? "on" : "off");
             return;
         }
 
@@ -329,112 +307,47 @@ namespace
             printLuxOnce();
             return;
         }
-        if (line.equalsIgnoreCase("luxperiodic on"))
+        if (sscanf(line.c_str(), "luxperiodic %d", &ia) == 1)
         {
-            luxPeriodic = true;
-            Serial.println("[lux] periodic on");
-            return;
-        }
-        if (line.equalsIgnoreCase("luxperiodic off"))
-        {
-            luxPeriodic = false;
-            Serial.println("[lux] periodic off");
+            luxPeriodic = (ia != 0);
+            Serial.printf("[lux] periodic %s\n", luxPeriodic ? "on" : "off");
             return;
         }
 
-        // --- LED commands ---
-
-        if (line.equalsIgnoreCase("led on"))
+        if (sscanf(line.c_str(), "led %d", &ia) == 1)
         {
             ledAutoEnabled = false;
+            ledSetEnabled(ia != 0);
+            return;
+        }
+        if (sscanf(line.c_str(), "ledauto %d", &ia) == 1)
+        {
+            ledAutoEnabled = (ia != 0);
+            Serial.printf("[led] auto %s\n", ledAutoEnabled ? "on" : "off");
+            return;
+        }
+        if (sscanf(line.c_str(), "ledcolor %d %d %d", &ia, &ib, &ic) == 3)
+        {
+            ledAutoEnabled = false;
+            ledR = static_cast<uint8_t>(clampf(ia, 0, 255));
+            ledG = static_cast<uint8_t>(clampf(ib, 0, 255));
+            ledB = static_cast<uint8_t>(clampf(ic, 0, 255));
             ledSetEnabled(true);
-            return;
-        }
-
-        if (line.equalsIgnoreCase("led off"))
-        {
-            ledAutoEnabled = false;
-            ledSetEnabled(false);
-            return;
-        }
-
-        if (line.equalsIgnoreCase("ledauto on"))
-        {
-            ledAutoEnabled = true;
-            Serial.println("[led] auto on");
-            return;
-        }
-
-        if (line.equalsIgnoreCase("ledauto off"))
-        {
-            ledAutoEnabled = false;
-            Serial.println("[led] auto off");
-            return;
-        }
-
-        if (line.startsWith("ledbri "))
-        {
-            long v = line.substring(7).toInt();
-            if (v < 0)
-                v = 0;
-            if (v > 255)
-                v = 255;
-
-            ledBrightness = static_cast<uint8_t>(v);
             ledApply();
-            Serial.printf("[led] brightness=%d\n", static_cast<int>(ledBrightness));
             return;
         }
-
-        if (line.startsWith("ledcolor "))
+        if (sscanf(line.c_str(), "ledbri %d", &ia) == 1)
         {
-            const int s1 = line.indexOf(' ');
-            const int s2 = line.indexOf(' ', s1 + 1);
-            const int s3 = line.indexOf(' ', s2 + 1);
-            if (s3 < 0)
-            {
-                Serial.println("[console] usage: ledcolor <r> <g> <b>");
-                return;
-            }
-
-            long r = line.substring(s1 + 1, s2).toInt();
-            long g = line.substring(s2 + 1, s3).toInt();
-            long b = line.substring(s3 + 1).toInt();
-
-            if (r < 0)
-                r = 0;
-            if (r > 255)
-                r = 255;
-            if (g < 0)
-                g = 0;
-            if (g > 255)
-                g = 255;
-            if (b < 0)
-                b = 0;
-            if (b > 255)
-                b = 255;
-
-            ledR = static_cast<uint8_t>(r);
-            ledG = static_cast<uint8_t>(g);
-            ledB = static_cast<uint8_t>(b);
-
+            ledBrightness = static_cast<uint8_t>(clampf(ia, 0, 255));
             ledApply();
-            Serial.printf("[led] color=%d,%d,%d\n", static_cast<int>(ledR), static_cast<int>(ledG), static_cast<int>(ledB));
             return;
         }
 
-        // --- Audio commands ---
-
-        if (line.startsWith("vol "))
+        if (sscanf(line.c_str(), "vol %d", &ia) == 1)
         {
-            long p = line.substring(4).toInt();
-            if (p < 0)
-                p = 0;
-            if (p > 100)
-                p = 100;
-
-            audio.setVolume(static_cast<float>(p) / 100.0f);
-            Serial.printf("[audio] volume=%ld%%\n", p);
+            ia = static_cast<int>(clampf(ia, 0, 100));
+            audio.setVolume(static_cast<float>(ia) / 100.0f);
+            Serial.printf("[audio] volume=%d%%\n", ia);
             return;
         }
 
@@ -443,55 +356,43 @@ namespace
             audio.playBeep(880, 150);
             return;
         }
-
-        if (line.startsWith("beep "))
+        if (sscanf(line.c_str(), "beep %d %d", &ia, &ib) == 2)
         {
-            const int s1 = line.indexOf(' ');
-            const int s2 = line.indexOf(' ', s1 + 1);
-            if (s2 < 0)
-            {
-                Serial.println("[console] usage: beep <hz> <ms>");
-                return;
-            }
-
-            long hz = line.substring(s1 + 1, s2).toInt();
-            long ms = line.substring(s2 + 1).toInt();
-
-            if (hz < 50)
-                hz = 50;
-            if (hz > 5000)
-                hz = 5000;
-            if (ms < 10)
-                ms = 10;
-            if (ms > 2000)
-                ms = 2000;
-
-            audio.playBeep(static_cast<uint16_t>(hz), static_cast<uint16_t>(ms));
+            ia = static_cast<int>(clampf(ia, 20, 20000));
+            ib = static_cast<int>(clampf(ib, 10, 5000));
+            audio.playBeep(static_cast<uint16_t>(ia), static_cast<uint16_t>(ib));
             return;
         }
 
-        Serial.println("[console] unknown command (type: help)");
+        Serial.printf("[console] unknown: %s\n", line.c_str());
     }
+
+    // ---------------- periodic tasks ----------------
 
     void heartbeatTask(uint32_t nowMs)
     {
-        if (nowMs - lastHeartbeatMs < AppConfig::HEARTBEAT_PERIOD_MS)
+        if (nowMs - lastHeartbeatMs < 500)
             return;
-        lastHeartbeatMs = nowMs;
 
-        ledState = !ledState;
-        digitalWrite(static_cast<uint8_t>(BoardPins::HEARTBEAT_LED), ledState ? HIGH : LOW);
+        lastHeartbeatMs = nowMs;
+        static bool s = false;
+        s = !s;
+        digitalWrite(static_cast<uint8_t>(BoardPins::HEARTBEAT_LED), s ? HIGH : LOW);
     }
 
     void statusPrintTask(uint32_t nowMs)
     {
-        if (nowMs - lastStatusPrintMs < AppConfig::STATUS_PRINT_PERIOD_MS)
+        if (nowMs - lastStatusPrintMs < 2000)
             return;
+
         lastStatusPrintMs = nowMs;
 
-        Serial.printf("[status] uptime=%lu ms, heap_free=%u\n",
-                      static_cast<unsigned long>(nowMs),
-                      static_cast<unsigned int>(ESP.getFreeHeap()));
+        Serial.printf("[status] wifi=%s ip=%s ws=%s mode=%s\n",
+                      WifiManager::isConnected() ? "ok" : "no",
+                      WifiManager::ip().c_str(),
+                      WsControlClient::isConnected() ? "ok" : "no",
+                      (driveMode == RobotHttpServer::DriveMode::IDLE) ? "IDLE" : (driveMode == RobotHttpServer::DriveMode::MANUAL) ? "MANUAL"
+                                                                                                                                   : "AUTO");
     }
 
     void irUpdateTask(uint32_t nowMs)
@@ -534,13 +435,62 @@ namespace
         }
     }
 
-    RobotHttpServer::DriveMode driveMode = RobotHttpServer::DriveMode::IDLE;
+    // ---------------- backend state ----------------
 
     String lastRouteStart;
     String lastRouteEnd;
-    String positionStr = "";
+    String positionStr = "Home";
 
-}
+    static const char *driveModeToBackend()
+    {
+        if (driveMode == RobotHttpServer::DriveMode::MANUAL)
+            return "MANUAL";
+        if (driveMode == RobotHttpServer::DriveMode::AUTO)
+            return (positionStr == "MOVING") ? "NAVIGATING" : "IDLE";
+        return "IDLE";
+    }
+
+    void backendRegisterTask(uint32_t nowMs)
+    {
+        if (!WifiManager::isConnected())
+            return;
+
+        if (nowMs - lastBackendRegisterMs < 30000)
+            return;
+        lastBackendRegisterMs = nowMs;
+
+        const bool ok = BackendClient::registerRobot(BackendConfig::ROBOT_PORT);
+        Serial.printf("[backend] register %s\n", ok ? "ok" : "fail");
+    }
+
+    void backendStatePush()
+    {
+        if (!WifiManager::isConnected())
+            return;
+
+        BackendClient::postState(
+            "OK",
+            85,
+            driveModeToBackend(),
+            "EMPTY",
+            positionStr.length() ? positionStr : String(""),
+            lastRouteStart.length() ? lastRouteStart : String(""),
+            lastRouteEnd.length() ? lastRouteEnd : String(""));
+    }
+
+    void backendStateTask(uint32_t nowMs)
+    {
+        if (!WifiManager::isConnected())
+            return;
+
+        if (nowMs - lastBackendStateMs < 1000)
+            return;
+        lastBackendStateMs = nowMs;
+
+        backendStatePush();
+    }
+
+} // namespace
 
 namespace App
 {
@@ -561,14 +511,34 @@ namespace App
         irRight.begin();
 
         Wire.begin(static_cast<int>(BoardPins::I2C_SDA), static_cast<int>(BoardPins::I2C_SCL));
+        Wire.setClock(100000);
+        delay(50);
+
+        auto scanI2C = []()
+        {
+            Serial.println("[i2c] scanning...");
+            uint8_t count = 0;
+            for (uint8_t addr = 1; addr < 127; addr++)
+            {
+                Wire.beginTransmission(addr);
+                if (Wire.endTransmission() == 0)
+                {
+                    Serial.printf("[i2c] found 0x%02X\n", addr);
+                    count++;
+                }
+            }
+            if (!count)
+                Serial.println("[i2c] no devices found");
+        };
+        scanI2C();
 
         const bool dok = oled.begin();
         Serial.printf("[oled] init %s (addr=0x%02X)\n", dok ? "ok" : "fail", 0x3C);
         if (dok)
             oledBootScreen();
 
-        const bool ok = lightSensor.begin();
-        Serial.printf("[bh1750] init %s (addr=0x%02X)\n", ok ? "ok" : "fail", 0x23);
+        const bool lok = lightSensor.begin();
+        Serial.printf("[bh1750] init %s (addr=0x%02X)\n", lok ? "ok" : "fail", 0x23);
 
         ledStrip.begin();
         ledStrip.clear();
@@ -586,16 +556,18 @@ namespace App
         {
             const bool regOk = BackendClient::registerRobot(BackendConfig::ROBOT_PORT);
             Serial.printf("[backend] register %s\n", regOk ? "ok" : "fail");
+            backendStatePush();
         }
+
         RobotHttpServer::begin(
             BackendConfig::ROBOT_PORT,
             []() -> RobotHttpServer::StatusSnapshot
             {
                 RobotHttpServer::StatusSnapshot s{};
                 s.systemHealth = "OK";
-                s.batteryLevel = 85; // TODO: real battery later
+                s.batteryLevel = 85;
                 s.driveMode = driveMode;
-                s.cargoStatus = "IN_TRANSIT";
+                s.cargoStatus = "EMPTY";
 
                 s.lastRouteStart = lastRouteStart.length() ? lastRouteStart.c_str() : nullptr;
                 s.lastRouteEnd = lastRouteEnd.length() ? lastRouteEnd.c_str() : nullptr;
@@ -622,76 +594,82 @@ namespace App
                 {
                     leftMotor.stop();
                     rightMotor.stop();
+                    positionStr = (positionStr.length() ? positionStr : String("Home"));
                 }
 
                 Serial.printf("[mode] set to %s\n",
                               (driveMode == RobotHttpServer::DriveMode::IDLE) ? "IDLE" : (driveMode == RobotHttpServer::DriveMode::MANUAL) ? "MANUAL"
                                                                                                                                            : "AUTO");
+
+                backendStatePush();
             },
             [](const String &startNode, const String &endNode)
             {
                 lastRouteStart = startNode;
                 lastRouteEnd = endNode;
                 Serial.printf("[route] selected %s -> %s\n", startNode.c_str(), endNode.c_str());
+                backendStatePush();
             });
 
         WsControlClient::begin(
-            BackendConfig::HOST,
-            BackendConfig::WS_PORT,
-            "/",
             WsControlClient::Handlers{
-                .onTank = [](const WsControlClient::TankCmd &c)
-                { setTank(c.throttle, c.steer); },
+                .onConnected = []()
+                {
+                    Serial.println("[ws] connected");
+                    backendStatePush(); },
+                .onDisconnected = []()
+                { Serial.println("[ws] disconnected"); },
+                .onNavigate = [](const String &startNode, const String &destNode)
+                {
+                    lastRouteStart = startNode;
+                    lastRouteEnd = destNode;
+
+                    driveMode = RobotHttpServer::DriveMode::AUTO;
+                    positionStr = "MOVING";
+
+                    Serial.printf("[ws] NAVIGATE %s -> %s\n", startNode.c_str(), destNode.c_str());
+                    BackendClient::postEvent("START_BUTTON_PRESSED");
+                    backendStatePush(); },
+                .onDriveCommand = [](float linear, float angular)
+                {
+                    driveMode = RobotHttpServer::DriveMode::MANUAL;
+                    positionStr = "MOVING";
+
+                    setTank(linear, angular);
+                    backendStatePush(); },
                 .onStop = []()
                 {
-            leftMotor.stop();
-            rightMotor.stop();
-            Serial.println("[ws] stop"); },
-                .onMode = [](const String &m)
-                {
-            // Reuse your existing mode handling by calling the same logic you use for HTTP /mode
-            // If you store driveMode variable, update it here too.
-            Serial.printf("[ws] mode=%s\n", m.c_str()); },
-                .onLedColor = [](uint8_t r, uint8_t g, uint8_t b)
-                {
-            ledAutoEnabled = false;
-            ledR = r; ledG = g; ledB = b;
-            ledSetEnabled(true);
-            ledApply();
-            Serial.printf("[ws] ledcolor=%u,%u,%u\n", r, g, b); },
-                .onVolume = [](uint8_t percent)
-                {
-            audio.setVolume((float)percent / 100.0f);
-            Serial.printf("[ws] volume=%u%%\n", percent); },
-                .onBeep = [](uint16_t hz, uint16_t ms)
-                {
-            audio.playBeep(hz, ms);
-            Serial.printf("[ws] beep %uHz %ums\n", hz, ms); }});
+                    leftMotor.stop();
+                    rightMotor.stop();
+                    driveMode = RobotHttpServer::DriveMode::IDLE;
+                    positionStr = (positionStr == "MOVING") ? String("Home") : positionStr;
 
-        Serial.println("[boot] base scaffold + motors + IR + BH1750 + WS2812B + I2S audio");
+                    Serial.println("[ws] STOP");
+                    backendStatePush(); },
+                .onSetMode = [](const String &mode)
+                {
+                    if (mode == "IDLE")
+                    {
+                        driveMode = RobotHttpServer::DriveMode::IDLE;
+                        leftMotor.stop();
+                        rightMotor.stop();
+                    }
+                    else if (mode == "MANUAL")
+                    {
+                        driveMode = RobotHttpServer::DriveMode::MANUAL;
+                    }
+                    else if (mode == "AUTO")
+                    {
+                        driveMode = RobotHttpServer::DriveMode::AUTO;
+                    }
+
+                    Serial.printf("[ws] SET_MODE %s\n", mode.c_str());
+                    backendStatePush(); },
+                .onUnknownCommand = [](const String &cmd, const JsonDocument &)
+                { Serial.printf("[ws] unknown command: %s\n", cmd.c_str()); }});
+
+        Serial.println("[boot] motors + IR + BH1750 + WS2812B + I2S audio + OLED + backend ws/http");
         printHelp();
-
-        auto scanI2C = []()
-        {
-            Serial.println("[i2c] scanning...");
-            uint8_t count = 0;
-            for (uint8_t addr = 1; addr < 127; addr++)
-            {
-                Wire.beginTransmission(addr);
-                if (Wire.endTransmission() == 0)
-                {
-                    Serial.printf("[i2c] found 0x%02X\n", addr);
-                    count++;
-                }
-            }
-            if (!count)
-                Serial.println("[i2c] no devices found");
-        };
-
-        Wire.begin(static_cast<int>(BoardPins::I2C_SDA), static_cast<int>(BoardPins::I2C_SCL));
-        Wire.setClock(100000); // sicherer Start
-        delay(50);
-        scanI2C();
     }
 
     void loop()
@@ -705,8 +683,12 @@ namespace App
         oledUpdateTask(nowMs);
         ledAutoTask();
         handleConsole();
+
         RobotHttpServer::handle();
         WsControlClient::loop();
+
+        backendRegisterTask(nowMs);
+        backendStateTask(nowMs);
 
         delay(1);
     }
