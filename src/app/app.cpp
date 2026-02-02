@@ -29,7 +29,6 @@ namespace
 
     RobotHttpServer::DriveMode driveMode = RobotHttpServer::DriveMode::IDLE;
 
-    uint32_t lastHeartbeatMs = 0;
     uint32_t lastStatusPrintMs = 0;
     uint32_t lastIrPrintMs = 0;
     uint32_t lastLuxPrintMs = 0;
@@ -674,17 +673,6 @@ namespace
     // Periodic tasks
     // ==========================
 
-    void heartbeatTask(uint32_t nowMs)
-    {
-        if (nowMs - lastHeartbeatMs < 500)
-            return;
-
-        lastHeartbeatMs = nowMs;
-        static bool s = false;
-        s = !s;
-        digitalWrite(static_cast<uint8_t>(BoardPins::HEARTBEAT_LED), s ? HIGH : LOW);
-    }
-
     void statusPrintTask(uint32_t nowMs)
     {
         if (nowMs - lastStatusPrintMs < 2000)
@@ -816,9 +804,6 @@ namespace App
         lastDriveDebugMs = bootMs;
         obstacleFrontActive = false;
         obstacleHoldUntilMs = 0;
-
-        pinMode(static_cast<uint8_t>(BoardPins::HEARTBEAT_LED), OUTPUT);
-        digitalWrite(static_cast<uint8_t>(BoardPins::HEARTBEAT_LED), LOW);
 
         console.begin();
 
@@ -1002,7 +987,6 @@ namespace App
     {
         const uint32_t nowMs = millis();
 
-        heartbeatTask(nowMs);
         statusPrintTask(nowMs);
 
         irUpdateTask(nowMs);
