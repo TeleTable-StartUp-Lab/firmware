@@ -17,12 +17,18 @@
 #include "net/ws_control_client.h"
 
 #include <Adafruit_NeoPixel.h>
-#include <cmath>
 #include <Wire.h>
+#include <cmath>
+#include <cstdint>
 
 namespace
 {
+    // ==========================
+    // General / app state
+    // ==========================
+
     RobotHttpServer::DriveMode driveMode = RobotHttpServer::DriveMode::IDLE;
+
     uint32_t lastHeartbeatMs = 0;
     uint32_t lastStatusPrintMs = 0;
     uint32_t lastIrPrintMs = 0;
@@ -33,6 +39,10 @@ namespace
 
     SerialConsole console;
 
+    // ==========================
+    // Motor drivers
+    // ==========================
+
     HBridgeMotor leftMotor({.in1 = BoardPins::LEFT_MOTOR_IN1,
                             .in2 = BoardPins::LEFT_MOTOR_IN2,
                             .pwm_hz = 20000,
@@ -42,6 +52,10 @@ namespace
                              .in2 = BoardPins::RIGHT_MOTOR_IN2,
                              .pwm_hz = 20000,
                              .pwm_resolution_bits = 10});
+
+    // ==========================
+    // Sensors
+    // ==========================
 
     ObstacleSensor irLeft({.pin = BoardPins::IR_LEFT, .active_low = BoardPins::IR_ACTIVE_LOW, .debounce_ms = 30, .use_internal_pullup = false});
     ObstacleSensor irMid({.pin = BoardPins::IR_MIDDLE, .active_low = BoardPins::IR_ACTIVE_LOW, .debounce_ms = 30, .use_internal_pullup = false});
@@ -61,7 +75,11 @@ namespace
                     .dout_pin = static_cast<int>(BoardPins::I2S_DOUT),
                     .sample_rate_hz = 22050});
 
-    float clampf(float v, float lo, float hi)
+    // ==========================
+    // Helpers
+    // ==========================
+
+    static inline float clampf(float v, float lo, float hi)
     {
         if (v < lo)
             return lo;
@@ -70,32 +88,224 @@ namespace
         return v;
     }
 
-    void setTank(float throttle, float steer)
+    static inline bool approxEqual(float a, float b, float eps)
     {
-        constexpr float THROTTLE_DEADBAND = 0.02f;
-        constexpr float STEER_DEADBAND = 0.02f;
-        constexpr float STEER_GAIN = 1.0f; // >1 for tighter turn response, <1 for smoother feel
+        return std::fabs(a - b) <= eps;
+    }
 
+    static inline float slewTowards(float current, float target, float maxDelta)
+    {
+        const float delta = target - current;
+        if (delta > maxDelta)
+            return current + maxDelta;
+        if (delta < -maxDelta)
+            return current - maxDelta;
+        return target;
+    }
+
+    static bool parseOnOffOr01(const String &s, bool &out)
+    {
+        String t = s;
+        t.trim();
+        t.toLowerCase();
+        if (t == "on" || t == "true" || t == "1")
+        {
+            out = true;
+            return true;
+        }
+        if (t == "off" || t == "false" || t == "0")
+        {
+            out = false;
+            return true;
+        }
+        return false;
+    }
+
+    // ==========================
+    // Drive control (product-grade)
+    // ==========================
+
+    struct DriveConfig
+    {
+        float throttle_deadband = 0.03f;
+        float steer_deadband = 0.03f;
+
+        float throttle_slew_rate = 2.8f;
+        float steer_slew_rate = 4.5f;
+
+        uint32_t manual_cmd_timeout_ms = 600;
+
+        uint32_t motor_apply_min_interval_ms = 15;
+
+        uint32_t drive_debug_interval_ms = 250;
+
+        uint32_t obstacle_hold_ms = 300;
+
+        bool renormalize_mixing = true;
+
+        bool drive_debug = false;
+    };
+
+    DriveConfig driveCfg{};
+
+    float targetThrottle = 0.0f;
+    float targetSteer = 0.0f;
+
+    float smoothedThrottle = 0.0f;
+    float smoothedSteer = 0.0f;
+
+    uint32_t lastDriveCmdMs = 0;
+    uint32_t lastDriveUpdateMs = 0;
+
+    uint32_t lastMotorApplyMs = 0;
+    float lastAppliedLeft = 0.0f;
+    float lastAppliedRight = 0.0f;
+
+    uint32_t lastDriveDebugMs = 0;
+
+    bool obstacleFrontActive = false;
+    uint32_t obstacleHoldUntilMs = 0;
+
+    static inline bool frontObstacleNow()
+    {
+        return irLeft.isObstacle() || irMid.isObstacle() || irRight.isObstacle();
+    }
+
+    void setDriveTargets(float throttle, float steer, bool immediate);
+
+    void applyTank(float throttle, float steer, uint32_t nowMs)
+    {
         throttle = clampf(throttle, -1.0f, 1.0f);
-        steer = clampf(steer * STEER_GAIN, -1.0f, 1.0f);
+        steer = clampf(steer, -1.0f, 1.0f);
 
-        if (std::fabs(throttle) < THROTTLE_DEADBAND)
+        if (std::fabs(throttle) < driveCfg.throttle_deadband)
             throttle = 0.0f;
-        if (std::fabs(steer) < STEER_DEADBAND)
+        if (std::fabs(steer) < driveCfg.steer_deadband)
             steer = 0.0f;
 
-        const float left = clampf(throttle - steer, -1.0f, 1.0f);
-        const float right = clampf(throttle + steer, -1.0f, 1.0f);
+        float left = throttle - steer;
+        float right = throttle + steer;
+
+        if (driveCfg.renormalize_mixing)
+        {
+            const float m = std::max(std::fabs(left), std::fabs(right));
+            if (m > 1.0f)
+            {
+                left /= m;
+                right /= m;
+            }
+        }
+
+        left = clampf(left, -1.0f, 1.0f);
+        right = clampf(right, -1.0f, 1.0f);
+
+        constexpr float APPLY_EPS = 0.005f; // 0.5% changes
+        if ((nowMs - lastMotorApplyMs) < driveCfg.motor_apply_min_interval_ms &&
+            approxEqual(left, lastAppliedLeft, APPLY_EPS) &&
+            approxEqual(right, lastAppliedRight, APPLY_EPS))
+        {
+            return;
+        }
+
+        if (approxEqual(left, lastAppliedLeft, APPLY_EPS) &&
+            approxEqual(right, lastAppliedRight, APPLY_EPS))
+        {
+            return;
+        }
 
         leftMotor.set(left);
         rightMotor.set(right);
 
-        Serial.printf("[tank] throttle=%.3f steer=%.3f => L=%.3f R=%.3f\n",
-                      static_cast<double>(throttle),
-                      static_cast<double>(steer),
-                      static_cast<double>(left),
-                      static_cast<double>(right));
+        lastAppliedLeft = left;
+        lastAppliedRight = right;
+        lastMotorApplyMs = nowMs;
+
+        if (driveCfg.drive_debug && (nowMs - lastDriveDebugMs) >= driveCfg.drive_debug_interval_ms)
+        {
+            lastDriveDebugMs = nowMs;
+            Serial.printf("[drive] tgt(t=%.2f s=%.2f) sm(t=%.2f s=%.2f) -> L=%.2f R=%.2f obs=%d\n",
+                          static_cast<double>(targetThrottle),
+                          static_cast<double>(targetSteer),
+                          static_cast<double>(smoothedThrottle),
+                          static_cast<double>(smoothedSteer),
+                          static_cast<double>(left),
+                          static_cast<double>(right),
+                          obstacleFrontActive ? 1 : 0);
+        }
     }
+
+    void setDriveTargets(float throttle, float steer, bool immediate)
+    {
+        targetThrottle = clampf(throttle, -1.0f, 1.0f);
+        targetSteer = clampf(steer, -1.0f, 1.0f);
+        lastDriveCmdMs = millis();
+
+        if (immediate)
+        {
+            smoothedThrottle = targetThrottle;
+            smoothedSteer = targetSteer;
+            applyTank(smoothedThrottle, smoothedSteer, lastDriveCmdMs);
+        }
+    }
+
+    void updateDrive(uint32_t nowMs)
+    {
+        if (lastDriveUpdateMs == 0)
+            lastDriveUpdateMs = nowMs;
+
+        float dt = static_cast<float>(nowMs - lastDriveUpdateMs) * 0.001f;
+        lastDriveUpdateMs = nowMs;
+
+        dt = clampf(dt, 0.0f, 0.100f);
+
+        const bool obsNow = frontObstacleNow();
+        if (obsNow)
+        {
+            obstacleHoldUntilMs = nowMs + driveCfg.obstacle_hold_ms;
+            if (!obstacleFrontActive)
+                Serial.println("[ir] obstacle FRONT detected -> forward blocked");
+            obstacleFrontActive = true;
+        }
+        else
+        {
+            if (obstacleFrontActive && nowMs >= obstacleHoldUntilMs)
+            {
+                obstacleFrontActive = false;
+                Serial.println("[ir] obstacle FRONT cleared -> forward allowed");
+            }
+        }
+
+        if (driveMode == RobotHttpServer::DriveMode::MANUAL &&
+            (nowMs - lastDriveCmdMs) > driveCfg.manual_cmd_timeout_ms)
+        {
+            targetThrottle = 0.0f;
+            targetSteer = 0.0f;
+        }
+
+        if (obstacleFrontActive)
+        {
+            if (targetThrottle > 0.0f)
+                targetThrottle = 0.0f;
+
+            if (smoothedThrottle > 0.0f)
+                smoothedThrottle = 0.0f;
+        }
+
+        const float maxThrottleStep = driveCfg.throttle_slew_rate * dt;
+        const float maxSteerStep = driveCfg.steer_slew_rate * dt;
+
+        smoothedThrottle = slewTowards(smoothedThrottle, targetThrottle, maxThrottleStep);
+        smoothedSteer = slewTowards(smoothedSteer, targetSteer, maxSteerStep);
+
+        if (obstacleFrontActive && smoothedThrottle > 0.0f)
+            smoothedThrottle = 0.0f;
+
+        applyTank(smoothedThrottle, smoothedSteer, nowMs);
+    }
+
+    // ==========================
+    // Lux / IR prints
+    // ==========================
 
     void printIrOnce()
     {
@@ -115,7 +325,9 @@ namespace
         Serial.printf("[lux] %.1f lx\n", static_cast<double>(lightSensor.lux()));
     }
 
-    // ---------------- LED strip ----------------
+    // ==========================
+    // LED strip
+    // ==========================
 
     constexpr uint16_t LED_COUNT = 144;
 
@@ -158,7 +370,6 @@ namespace
 
         ledEnabled = enabled;
         ledApply();
-
         Serial.printf("[led] %s\n", ledEnabled ? "ON" : "OFF");
     }
 
@@ -183,7 +394,9 @@ namespace
         }
     }
 
-    // ---------------- OLED ----------------
+    // ==========================
+    // OLED
+    // ==========================
 
     OledDisplay oled({.wire = &Wire, .address = 0x3C, .width = 128, .height = 64, .reset_pin = -1});
     uint32_t lastOledMs = 0;
@@ -226,34 +439,41 @@ namespace
 
         l[3] = String("LED: ") + (ledEnabled ? "on" : "off") + (ledAutoEnabled ? " (A)" : " (M)");
         l[4] = String("WS: ") + (WsControlClient::isConnected() ? "connected" : "offline");
-        l[5] = "";
+
+        if (obstacleFrontActive)
+            l[5] = "IR: FRONT BLOCK";
+        else
+            l[5] = "";
 
         oled.setLines(l, 6);
         oled.show();
     }
 
-    // ------------- Console help / handling -------------
+    // ==========================
+    // Console help / handling
+    // ==========================
 
     void printHelp()
     {
         Serial.println("Commands:");
-        Serial.println("  help                 - show commands");
-        Serial.println("  l <v>                - set left motor [-1.0..1.0]");
-        Serial.println("  r <v>                - set right motor [-1.0..1.0]");
-        Serial.println("  tank <t> <s>         - set throttle/steer [-1.0..1.0]");
-        Serial.println("  stop                 - stop both motors (coast)");
-        Serial.println("  ir                   - print IR sensor states once");
-        Serial.println("  irwatch on|off        - print IR edge events");
-        Serial.println("  irperiodic on|off     - periodic IR snapshot every 500ms");
-        Serial.println("  lux                  - print light sensor lux once");
-        Serial.println("  luxperiodic on|off    - periodic lux print every 500ms");
-        Serial.println("  led on|off           - manual LED on/off");
-        Serial.println("  ledauto on|off       - enable/disable auto LED control");
-        Serial.println("  ledcolor <r> <g> <b> - set LED color (0..255)");
-        Serial.println("  ledbri <x>           - set LED brightness (0..255)");
-        Serial.println("  vol <0..100>         - set audio volume percent");
-        Serial.println("  beep                 - play short test beep");
-        Serial.println("  beep <hz> <ms>       - play beep with frequency and duration");
+        Serial.println("  help                      - show commands");
+        Serial.println("  l <v>                     - set left motor [-1.0..1.0] (direct, no smoothing)");
+        Serial.println("  r <v>                     - set right motor [-1.0..1.0] (direct, no smoothing)");
+        Serial.println("  tank <throttle> <steer>   - set targets [-1.0..1.0] (smoothed)");
+        Serial.println("  stop                      - stop both motors");
+        Serial.println("  drivedbg on|off            - drive debug prints");
+        Serial.println("  ir                         - print IR sensor states once");
+        Serial.println("  irwatch on|off              - print IR edge events");
+        Serial.println("  irperiodic on|off           - periodic IR snapshot every 500ms");
+        Serial.println("  lux                        - print light sensor lux once");
+        Serial.println("  luxperiodic on|off          - periodic lux print every 500ms");
+        Serial.println("  led on|off                 - manual LED on/off");
+        Serial.println("  ledauto on|off             - enable/disable auto LED control");
+        Serial.println("  ledcolor <r> <g> <b>       - set LED color (0..255)");
+        Serial.println("  ledbri <x>                 - set LED brightness (0..255)");
+        Serial.println("  vol <0..100>               - set audio volume percent");
+        Serial.println("  beep                       - play short test beep");
+        Serial.println("  beep <hz> <ms>             - play beep with frequency and duration");
     }
 
     void handleConsole()
@@ -262,7 +482,10 @@ namespace
         if (!console.pollLine(line))
             return;
 
-        if (line.equalsIgnoreCase("help"))
+        String trimmed = line;
+        trimmed.trim();
+
+        if (trimmed.equalsIgnoreCase("help"))
         {
             printHelp();
             return;
@@ -272,71 +495,139 @@ namespace
         float b = 0.0f;
         int ia = 0, ib = 0, ic = 0;
 
-        if (sscanf(line.c_str(), "l %f", &a) == 1)
+        if (sscanf(trimmed.c_str(), "l %f", &a) == 1)
         {
             leftMotor.set(clampf(a, -1.0f, 1.0f));
             return;
         }
-        if (sscanf(line.c_str(), "r %f", &a) == 1)
+        if (sscanf(trimmed.c_str(), "r %f", &a) == 1)
         {
             rightMotor.set(clampf(a, -1.0f, 1.0f));
             return;
         }
-        if (sscanf(line.c_str(), "tank %f %f", &a, &b) == 2)
+
+        if (sscanf(trimmed.c_str(), "tank %f %f", &a, &b) == 2)
         {
-            setTank(a, b);
-            return;
-        }
-        if (line.equalsIgnoreCase("stop"))
-        {
-            leftMotor.stop();
-            rightMotor.stop();
+            setDriveTargets(a, b, false);
             return;
         }
 
-        if (line.equalsIgnoreCase("ir"))
+        if (trimmed.equalsIgnoreCase("stop"))
+        {
+            setDriveTargets(0.0f, 0.0f, true);
+            return;
+        }
+
+        if (trimmed.startsWith("drivedbg"))
+        {
+            int sp = trimmed.indexOf(' ');
+            if (sp > 0)
+            {
+                bool on = false;
+                if (parseOnOffOr01(trimmed.substring(sp + 1), on))
+                {
+                    driveCfg.drive_debug = on;
+                    Serial.printf("[drive] debug %s\n", on ? "on" : "off");
+                    return;
+                }
+            }
+            Serial.println("[drive] usage: drivedbg on|off");
+            return;
+        }
+
+        if (trimmed.equalsIgnoreCase("ir"))
         {
             printIrOnce();
             return;
         }
-        if (sscanf(line.c_str(), "irwatch %d", &ia) == 1)
+
+        if (trimmed.startsWith("irwatch"))
         {
-            irWatch = (ia != 0);
-            Serial.printf("[ir] watch %s\n", irWatch ? "on" : "off");
-            return;
-        }
-        if (sscanf(line.c_str(), "irperiodic %d", &ia) == 1)
-        {
-            irPeriodic = (ia != 0);
-            Serial.printf("[ir] periodic %s\n", irPeriodic ? "on" : "off");
+            int sp = trimmed.indexOf(' ');
+            if (sp > 0)
+            {
+                bool on = false;
+                if (parseOnOffOr01(trimmed.substring(sp + 1), on))
+                {
+                    irWatch = on;
+                    Serial.printf("[ir] watch %s\n", irWatch ? "on" : "off");
+                    return;
+                }
+            }
+            Serial.println("[ir] usage: irwatch on|off");
             return;
         }
 
-        if (line.equalsIgnoreCase("lux"))
+        if (trimmed.startsWith("irperiodic"))
+        {
+            int sp = trimmed.indexOf(' ');
+            if (sp > 0)
+            {
+                bool on = false;
+                if (parseOnOffOr01(trimmed.substring(sp + 1), on))
+                {
+                    irPeriodic = on;
+                    Serial.printf("[ir] periodic %s\n", irPeriodic ? "on" : "off");
+                    return;
+                }
+            }
+            Serial.println("[ir] usage: irperiodic on|off");
+            return;
+        }
+
+        if (trimmed.equalsIgnoreCase("lux"))
         {
             printLuxOnce();
             return;
         }
-        if (sscanf(line.c_str(), "luxperiodic %d", &ia) == 1)
+
+        if (trimmed.startsWith("luxperiodic"))
         {
-            luxPeriodic = (ia != 0);
-            Serial.printf("[lux] periodic %s\n", luxPeriodic ? "on" : "off");
+            int sp = trimmed.indexOf(' ');
+            if (sp > 0)
+            {
+                bool on = false;
+                if (parseOnOffOr01(trimmed.substring(sp + 1), on))
+                {
+                    luxPeriodic = on;
+                    Serial.printf("[lux] periodic %s\n", luxPeriodic ? "on" : "off");
+                    return;
+                }
+            }
+            Serial.println("[lux] usage: luxperiodic on|off");
             return;
         }
 
-        if (sscanf(line.c_str(), "led %d", &ia) == 1)
+        if (trimmed.startsWith("ledauto"))
         {
-            ledAutoEnabled = false;
-            ledSetEnabled(ia != 0);
+            int sp = trimmed.indexOf(' ');
+            if (sp > 0)
+            {
+                bool on = false;
+                if (parseOnOffOr01(trimmed.substring(sp + 1), on))
+                {
+                    ledAutoEnabled = on;
+                    Serial.printf("[led] auto %s\n", ledAutoEnabled ? "on" : "off");
+                    return;
+                }
+            }
+            Serial.println("[led] usage: ledauto on|off");
             return;
         }
-        if (sscanf(line.c_str(), "ledauto %d", &ia) == 1)
+
+        if (trimmed.startsWith("led "))
         {
-            ledAutoEnabled = (ia != 0);
-            Serial.printf("[led] auto %s\n", ledAutoEnabled ? "on" : "off");
-            return;
+            int sp = trimmed.indexOf(' ');
+            bool on = false;
+            if (sp > 0 && parseOnOffOr01(trimmed.substring(sp + 1), on))
+            {
+                ledAutoEnabled = false;
+                ledSetEnabled(on);
+                return;
+            }
         }
-        if (sscanf(line.c_str(), "ledcolor %d %d %d", &ia, &ib, &ic) == 3)
+
+        if (sscanf(trimmed.c_str(), "ledcolor %d %d %d", &ia, &ib, &ic) == 3)
         {
             ledAutoEnabled = false;
             ledR = static_cast<uint8_t>(clampf(ia, 0, 255));
@@ -346,14 +637,15 @@ namespace
             ledApply();
             return;
         }
-        if (sscanf(line.c_str(), "ledbri %d", &ia) == 1)
+
+        if (sscanf(trimmed.c_str(), "ledbri %d", &ia) == 1)
         {
             ledBrightness = static_cast<uint8_t>(clampf(ia, 0, 255));
             ledApply();
             return;
         }
 
-        if (sscanf(line.c_str(), "vol %d", &ia) == 1)
+        if (sscanf(trimmed.c_str(), "vol %d", &ia) == 1)
         {
             ia = static_cast<int>(clampf(ia, 0, 100));
             audio.setVolume(static_cast<float>(ia) / 100.0f);
@@ -361,12 +653,13 @@ namespace
             return;
         }
 
-        if (line.equalsIgnoreCase("beep"))
+        if (trimmed.equalsIgnoreCase("beep"))
         {
             audio.playBeep(880, 150);
             return;
         }
-        if (sscanf(line.c_str(), "beep %d %d", &ia, &ib) == 2)
+
+        if (sscanf(trimmed.c_str(), "beep %d %d", &ia, &ib) == 2)
         {
             ia = static_cast<int>(clampf(ia, 20, 20000));
             ib = static_cast<int>(clampf(ib, 10, 5000));
@@ -374,10 +667,12 @@ namespace
             return;
         }
 
-        Serial.printf("[console] unknown: %s\n", line.c_str());
+        Serial.printf("[console] unknown: %s\n", trimmed.c_str());
     }
 
-    // ---------------- periodic tasks ----------------
+    // ==========================
+    // Periodic tasks
+    // ==========================
 
     void heartbeatTask(uint32_t nowMs)
     {
@@ -397,12 +692,13 @@ namespace
 
         lastStatusPrintMs = nowMs;
 
-        Serial.printf("[status] wifi=%s ip=%s ws=%s mode=%s\n",
+        Serial.printf("[status] wifi=%s ip=%s ws=%s mode=%s obs_front=%d\n",
                       WifiManager::isConnected() ? "ok" : "no",
                       WifiManager::ip().c_str(),
                       WsControlClient::isConnected() ? "ok" : "no",
                       (driveMode == RobotHttpServer::DriveMode::IDLE) ? "IDLE" : (driveMode == RobotHttpServer::DriveMode::MANUAL) ? "MANUAL"
-                                                                                                                                   : "AUTO");
+                                                                                                                                   : "AUTO",
+                      obstacleFrontActive ? 1 : 0);
     }
 
     void irUpdateTask(uint32_t nowMs)
@@ -417,10 +713,12 @@ namespace
                 Serial.println("[ir] left obstacle");
             if (irLeft.fellObstacle())
                 Serial.println("[ir] left clear");
+
             if (irMid.roseObstacle())
                 Serial.println("[ir] middle obstacle");
             if (irMid.fellObstacle())
                 Serial.println("[ir] middle clear");
+
             if (irRight.roseObstacle())
                 Serial.println("[ir] right obstacle");
             if (irRight.fellObstacle())
@@ -445,7 +743,9 @@ namespace
         }
     }
 
-    // ---------------- backend state ----------------
+    // ==========================
+    // Backend state
+    // ==========================
 
     String lastRouteStart;
     String lastRouteEnd;
@@ -509,10 +809,19 @@ namespace App
         Serial.begin(AppConfig::SERIAL_BAUD);
         delay(50);
 
+        const uint32_t bootMs = millis();
+        lastDriveCmdMs = bootMs;
+        lastDriveUpdateMs = bootMs;
+        lastMotorApplyMs = bootMs;
+        lastDriveDebugMs = bootMs;
+        obstacleFrontActive = false;
+        obstacleHoldUntilMs = 0;
+
         pinMode(static_cast<uint8_t>(BoardPins::HEARTBEAT_LED), OUTPUT);
         digitalWrite(static_cast<uint8_t>(BoardPins::HEARTBEAT_LED), LOW);
 
         console.begin();
+
         leftMotor.begin();
         rightMotor.begin();
 
@@ -602,8 +911,7 @@ namespace App
 
                 if (driveMode == RobotHttpServer::DriveMode::IDLE)
                 {
-                    leftMotor.stop();
-                    rightMotor.stop();
+                    setDriveTargets(0.0f, 0.0f, true);
                     positionStr = (positionStr.length() ? positionStr : String("Home"));
                 }
 
@@ -645,12 +953,20 @@ namespace App
                     driveMode = RobotHttpServer::DriveMode::MANUAL;
                     positionStr = "MOVING";
 
-                    setTank(linear, angular);
+                    if (!std::isfinite(linear))
+                        linear = 0.0f;
+                    if (!std::isfinite(angular))
+                        angular = 0.0f;
+
+                    linear = clampf(linear, -1.0f, 1.0f);
+                    angular = clampf(angular, -1.0f, 1.0f);
+
+                    setDriveTargets(linear, angular, false);
+
                     backendStatePush(); },
                 .onStop = []()
                 {
-                    leftMotor.stop();
-                    rightMotor.stop();
+                    setDriveTargets(0.0f, 0.0f, true);
                     driveMode = RobotHttpServer::DriveMode::IDLE;
                     positionStr = (positionStr == "MOVING") ? String("Home") : positionStr;
 
@@ -661,8 +977,7 @@ namespace App
                     if (mode == "IDLE")
                     {
                         driveMode = RobotHttpServer::DriveMode::IDLE;
-                        leftMotor.stop();
-                        rightMotor.stop();
+                        setDriveTargets(0.0f, 0.0f, true);
                     }
                     else if (mode == "MANUAL")
                     {
@@ -678,7 +993,8 @@ namespace App
                 .onUnknownCommand = [](const String &cmd, const JsonDocument &)
                 { Serial.printf("[ws] unknown command: %s\n", cmd.c_str()); }});
 
-        Serial.println("[boot] motors + IR + BH1750 + WS2812B + I2S audio + OLED + backend ws/http");
+        Serial.println("[boot] motors + IR(front) + BH1750 + WS2812B + I2S audio + OLED + backend ws/http");
+        Serial.println("[boot] obstacle policy: blocks FORWARD, reverse allowed");
         printHelp();
     }
 
@@ -688,11 +1004,15 @@ namespace App
 
         heartbeatTask(nowMs);
         statusPrintTask(nowMs);
+
         irUpdateTask(nowMs);
         luxUpdateTask(nowMs);
+
         oledUpdateTask(nowMs);
         ledAutoTask();
+
         handleConsole();
+        updateDrive(nowMs);
 
         RobotHttpServer::handle();
         WsControlClient::loop();
@@ -702,4 +1022,4 @@ namespace App
 
         delay(1);
     }
-}
+} // namespace App
