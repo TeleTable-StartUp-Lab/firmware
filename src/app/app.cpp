@@ -17,6 +17,7 @@
 #include "net/ws_control_client.h"
 
 #include <Adafruit_NeoPixel.h>
+#include <cmath>
 #include <Wire.h>
 
 namespace
@@ -71,11 +72,20 @@ namespace
 
     void setTank(float throttle, float steer)
     {
-        throttle = clampf(throttle, -1.0f, 1.0f);
-        steer = clampf(steer, -1.0f, 1.0f);
+        constexpr float THROTTLE_DEADBAND = 0.02f;
+        constexpr float STEER_DEADBAND = 0.02f;
+        constexpr float STEER_GAIN = 1.0f; // >1 for tighter turn response, <1 for smoother feel
 
-        const float left = clampf(throttle + steer, -1.0f, 1.0f);
-        const float right = clampf(throttle - steer, -1.0f, 1.0f);
+        throttle = clampf(throttle, -1.0f, 1.0f);
+        steer = clampf(steer * STEER_GAIN, -1.0f, 1.0f);
+
+        if (std::fabs(throttle) < THROTTLE_DEADBAND)
+            throttle = 0.0f;
+        if (std::fabs(steer) < STEER_DEADBAND)
+            steer = 0.0f;
+
+        const float left = clampf(throttle - steer, -1.0f, 1.0f);
+        const float right = clampf(throttle + steer, -1.0f, 1.0f);
 
         leftMotor.set(left);
         rightMotor.set(right);
