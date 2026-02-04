@@ -6,6 +6,26 @@
 #include <algorithm>
 #include <cmath>
 
+namespace
+{
+float applyExpo(float v, float expo)
+{
+    expo = clampf(expo, 0.0f, 1.0f);
+    return (1.0f - expo) * v + expo * v * v * v;
+}
+
+float applyDeadzoneRescale(float v, float deadband)
+{
+    deadband = clampf(deadband, 0.0f, 0.95f);
+    const float av = std::fabs(v);
+    if (av <= deadband)
+        return 0.0f;
+
+    const float scaled = (av - deadband) / (1.0f - deadband);
+    return std::copysign(scaled, v);
+}
+} // namespace
+
 DriveController::DriveController(SensorSuite &sensorsRef)
     : sensors(sensorsRef),
       leftMotor({.in1 = BoardPins::LEFT_MOTOR_IN1,
@@ -85,13 +105,6 @@ void DriveController::update(uint32_t nowMs, RobotHttpServer::DriveMode mode)
         }
     }
 
-    if (mode == RobotHttpServer::DriveMode::MANUAL &&
-        (nowMs - lastDriveCmdMs) > cfg.manual_cmd_timeout_ms)
-    {
-        targetThrottle = 0.0f;
-        targetSteer = 0.0f;
-    }
-
     if (obstacleFront)
     {
         if (targetThrottle > 0.0f)
@@ -101,8 +114,8 @@ void DriveController::update(uint32_t nowMs, RobotHttpServer::DriveMode mode)
             smoothedThrottle = 0.0f;
     }
 
-    const float maxThrottleStep = cfg.throttle_slew_rate * dt;
-    const float maxSteerStep = cfg.steer_slew_rate * dt;
+    float maxThrottleStep = cfg.throttle_slew_rate * dt;
+    float maxSteerStep = cfg.steer_slew_rate * dt;
 
     smoothedThrottle = slewTowards(smoothedThrottle, targetThrottle, maxThrottleStep);
     smoothedSteer = slewTowards(smoothedSteer, targetSteer, maxSteerStep);
@@ -143,10 +156,38 @@ void DriveController::applyTank(float throttle, float steer, uint32_t nowMs)
     throttle = clampf(throttle, -1.0f, 1.0f);
     steer = clampf(steer, -1.0f, 1.0f);
 
-    if (std::fabs(throttle) < cfg.throttle_deadband)
-        throttle = 0.0f;
-    if (std::fabs(steer) < cfg.steer_deadband)
-        steer = 0.0f;
+    float steerDeadband = cfg.steer_deadband;
+    if (std::fabs(throttle) >= cfg.straight_throttle_min)
+        steerDeadband = std::max(steerDeadband, cfg.straight_steer_deadband);
+
+    throttle = applyDeadzoneRescale(throttle, cfg.throttle_deadband);
+    steer = applyDeadzoneRescale(steer, steerDeadband);
+
+    throttle = applyExpo(throttle, cfg.throttle_expo);
+    steer = applyExpo(steer, cfg.steer_expo);
+
+    const float maxSteer = clampf(cfg.max_steer, 0.0f, 1.0f);
+    steer = clampf(steer, -maxSteer, maxSteer);
+
+    if (std::fabs(throttle) < cfg.in_place_throttle_max)
+        steer *= clampf(cfg.in_place_turn_scale, 0.0f, 1.0f);
+
+    const float steerAbs = std::fabs(steer);
+    if (steerAbs > 0.0f && cfg.turn_speed_reduction > 0.0f)
+    {
+        const float scale = clampf(1.0f - (cfg.turn_speed_reduction * steerAbs), 0.0f, 1.0f);
+        throttle *= scale;
+    }
+
+    const float maxThrottle = clampf(cfg.max_throttle, 0.0f, 1.0f);
+    float turnMax = maxThrottle;
+    const float maxTurnThrottle = clampf(cfg.max_turn_throttle, 0.0f, maxThrottle);
+    if (steerAbs > 0.0f && maxTurnThrottle < maxThrottle)
+    {
+        const float blend = clampf(steerAbs, 0.0f, 1.0f);
+        turnMax = maxThrottle - (maxThrottle - maxTurnThrottle) * blend;
+    }
+    throttle = clampf(throttle, -turnMax, turnMax);
 
     float left = throttle - steer;
     float right = throttle + steer;
