@@ -1,6 +1,7 @@
 #include "app/backend_coordinator.h"
 
 #include "app/app_utils.h"
+#include "app_config.h"
 #include "net/backend_client.h"
 #include "net/backend_config.h"
 #include "net/robot_http_server.h"
@@ -16,7 +17,12 @@ BackendCoordinator::BackendCoordinator(RobotState &stateRef, DriveController &dr
       leds(ledsRef),
       audio(audioRef),
       lastBackendRegisterMs(0),
-      lastBackendStateMs(0)
+      lastBackendStateMs(0),
+      lastBackendEventMs(0),
+      stateDirty(false),
+      stateUrgent(false),
+      eventPending(false),
+      pendingEvent("")
 {
 }
 
@@ -89,7 +95,8 @@ void BackendCoordinator::begin()
                 state.setPosition("MOVING");
 
                 Serial.printf("[ws] NAVIGATE %s -> %s\n", startNode.c_str(), destNode.c_str());
-                BackendClient::postEvent("START_BUTTON_PRESSED");
+                pendingEvent = "START_BUTTON_PRESSED";
+                eventPending = true;
                 pushState();
             },
             .onDriveCommand = [this](float linear, float angular)
@@ -163,7 +170,22 @@ void BackendCoordinator::registerTask(uint32_t nowMs)
 
 void BackendCoordinator::pushState()
 {
+    stateDirty = true;
+    stateUrgent = true;
+}
+
+void BackendCoordinator::stateTask(uint32_t nowMs)
+{
     if (!WifiManager::isConnected())
+        return;
+
+    const bool heartbeatDue = (nowMs - lastBackendStateMs) >= AppConfig::BACKEND_STATE_HEARTBEAT_MS;
+    const bool minGapMet = (nowMs - lastBackendStateMs) >= AppConfig::BACKEND_STATE_MIN_GAP_MS;
+
+    if (!stateDirty && !heartbeatDue)
+        return;
+
+    if (stateUrgent && !minGapMet)
         return;
 
     BackendClient::postState(
@@ -174,16 +196,25 @@ void BackendCoordinator::pushState()
         state.position().length() ? state.position() : String(""),
         state.lastRouteStart().length() ? state.lastRouteStart() : String(""),
         state.lastRouteEnd().length() ? state.lastRouteEnd() : String(""));
+
+    lastBackendStateMs = nowMs;
+    stateDirty = false;
+    stateUrgent = false;
 }
 
-void BackendCoordinator::stateTask(uint32_t nowMs)
+void BackendCoordinator::eventTask(uint32_t nowMs)
 {
     if (!WifiManager::isConnected())
         return;
-
-    if (nowMs - lastBackendStateMs < 1000)
+    if (!eventPending)
         return;
-    lastBackendStateMs = nowMs;
+    if ((nowMs - lastBackendEventMs) < AppConfig::BACKEND_EVENT_MIN_GAP_MS)
+        return;
 
-    pushState();
+    const String eventToPost = pendingEvent;
+    eventPending = false;
+    pendingEvent = "";
+
+    BackendClient::postEvent(eventToPost);
+    lastBackendEventMs = nowMs;
 }

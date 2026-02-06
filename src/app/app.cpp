@@ -128,6 +128,8 @@ namespace App
     {
         const uint32_t nowMs = millis();
 
+        backend.handle();
+
         statusPrintTask(nowMs);
 
         sensors.update(nowMs);
@@ -137,10 +139,9 @@ namespace App
         console.handle();
         drive.update(nowMs, state.driveMode());
 
-        backend.handle();
-
         backend.registerTask(nowMs);
         backend.stateTask(nowMs);
+        backend.eventTask(nowMs);
 
         delay(1);
     }

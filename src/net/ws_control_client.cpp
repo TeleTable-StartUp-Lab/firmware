@@ -1,6 +1,7 @@
 #include "net/ws_control_client.h"
 
 #include "net/backend_config.h"
+#include "app_config.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
@@ -93,7 +94,8 @@ namespace
         case WStype_TEXT:
             if (payload && length > 0)
             {
-                Serial.printf("[ws] rx: %.*s\n", (int)length, (const char *)payload);
+                if (AppConfig::WS_LOG_RX)
+                    Serial.printf("[ws] rx: %.*s\n", (int)length, (const char *)payload);
                 handleJsonMessage((const char *)payload, length);
             }
             break;
