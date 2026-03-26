@@ -2,6 +2,7 @@
 
 #include "board_pins.h"
 
+#include <SPI.h>
 #include <Wire.h>
 
 SensorSuite::SensorSuite()
@@ -10,9 +11,17 @@ SensorSuite::SensorSuite()
       irRight({.pin = BoardPins::IR_RIGHT, .active_low = BoardPins::IR_ACTIVE_LOW, .debounce_ms = 30, .use_internal_pullup = false}),
       lightSensor({.wire = &Wire, .address = BoardPins::BH1750_I2C_ADDRESS, .sample_period_ms = 250}),
       imuSensor({.wire = &Wire, .address = BoardPins::MPU6050_I2C_ADDRESS, .sample_period_ms = 100}),
+      rfidSensor({.spi = &SPI,
+                  .sck_pin = BoardPins::RC522_SCK,
+                  .miso_pin = BoardPins::RC522_MISO,
+                  .mosi_pin = BoardPins::RC522_MOSI,
+                  .ss_pin = BoardPins::RC522_SDA_SS,
+                  .rst_pin = BoardPins::RC522_RST,
+                  .poll_period_ms = 100}),
       irWatch(true),
       irPeriodic(false),
       luxPeriodic(true),
+      rfidWatch(true),
       lastIrPrintMs(0),
       lastLuxPrintMs(0)
 {
@@ -38,6 +47,11 @@ bool SensorSuite::beginImu()
 
     imuSensor.setAddress(BoardPins::MPU6050_I2C_ADDRESS_ALT);
     return imuSensor.begin();
+}
+
+bool SensorSuite::beginRfid()
+{
+    return rfidSensor.begin();
 }
 
 void SensorSuite::update(uint32_t nowMs)
@@ -73,6 +87,9 @@ void SensorSuite::update(uint32_t nowMs)
     lightSensor.update(nowMs);
     imuSensor.update(nowMs);
 
+    if (rfidSensor.update(nowMs) && rfidWatch)
+        printRfidOnce();
+
     if (luxPeriodic && (nowMs - lastLuxPrintMs >= 500))
     {
         lastLuxPrintMs = nowMs;
@@ -98,6 +115,28 @@ void SensorSuite::printLuxOnce()
     Serial.printf("[lux] %.1f lx\n", static_cast<double>(lightSensor.lux()));
 }
 
+void SensorSuite::printRfidOnce() const
+{
+    if (!rfidSensor.isOk())
+    {
+        Serial.println("[rfid] reader offline");
+        return;
+    }
+
+    if (!rfidSensor.hasReading())
+    {
+        Serial.println("[rfid] no card read yet");
+        return;
+    }
+
+    const auto &card = rfidSensor.reading();
+    Serial.printf("[rfid] uid=%s type=%s sak=0x%02X uid_bytes=%u\n",
+                  card.uid_hex.c_str(),
+                  card.card_type.c_str(),
+                  card.sak,
+                  card.uid_size);
+}
+
 void SensorSuite::setIrWatch(bool on)
 {
     irWatch = on;
@@ -111,6 +150,11 @@ void SensorSuite::setIrPeriodic(bool on)
 void SensorSuite::setLuxPeriodic(bool on)
 {
     luxPeriodic = on;
+}
+
+void SensorSuite::setRfidWatch(bool on)
+{
+    rfidWatch = on;
 }
 
 bool SensorSuite::frontObstacleNow() const
@@ -156,4 +200,19 @@ uint8_t SensorSuite::imuAddress() const
 const Mpu6050Sensor::Reading &SensorSuite::imu() const
 {
     return imuSensor.reading();
+}
+
+bool SensorSuite::hasRfid() const
+{
+    return rfidSensor.hasReading();
+}
+
+uint8_t SensorSuite::rfidVersion() const
+{
+    return rfidSensor.version();
+}
+
+const RfidRc522Sensor::Reading &SensorSuite::rfid() const
+{
+    return rfidSensor.reading();
 }

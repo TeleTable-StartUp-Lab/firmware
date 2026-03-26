@@ -26,6 +26,8 @@ void ConsoleCommander::printHelp()
     Serial.println("  irperiodic on|off           - periodic IR snapshot every 500ms");
     Serial.println("  lux                        - print light sensor lux once");
     Serial.println("  luxperiodic on|off          - periodic lux print every 500ms");
+    Serial.println("  rfid                       - print last RFID card once");
+    Serial.println("  rfidwatch on|off           - print RFID reads automatically");
     Serial.println("  led on|off                 - manual LED on/off");
     Serial.println("  ledauto on|off             - enable/disable auto LED control");
     Serial.println("  ledcolor <r> <g> <b>       - set LED color (0..255)");
@@ -154,6 +156,29 @@ void ConsoleCommander::handle()
             }
         }
         Serial.println("[lux] usage: luxperiodic on|off");
+        return;
+    }
+
+    if (trimmed.equalsIgnoreCase("rfid"))
+    {
+        sensors.printRfidOnce();
+        return;
+    }
+
+    if (trimmed.startsWith("rfidwatch"))
+    {
+        int sp = trimmed.indexOf(' ');
+        if (sp > 0)
+        {
+            bool on = false;
+            if (parseOnOffOr01(trimmed.substring(sp + 1), on))
+            {
+                sensors.setRfidWatch(on);
+                Serial.printf("[rfid] watch %s\n", on ? "on" : "off");
+                return;
+            }
+        }
+        Serial.println("[rfid] usage: rfidwatch on|off");
         return;
     }
 

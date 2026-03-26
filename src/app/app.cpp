@@ -104,6 +104,16 @@ namespace App
         const bool mok = sensors.beginImu();
         Serial.printf("[mpu6050] init %s (addr=0x%02X)\n", mok ? "ok" : "fail", sensors.imuAddress());
 
+        const bool rok = sensors.beginRfid();
+        Serial.printf("[rc522] init %s (ver=0x%02X ss=%d rst=%d sck=%d miso=%d mosi=%d)\n",
+                      rok ? "ok" : "fail",
+                      sensors.rfidVersion(),
+                      static_cast<int>(BoardPins::RC522_SDA_SS),
+                      static_cast<int>(BoardPins::RC522_RST),
+                      static_cast<int>(BoardPins::RC522_SCK),
+                      static_cast<int>(BoardPins::RC522_MISO),
+                      static_cast<int>(BoardPins::RC522_MOSI));
+
         leds.begin();
 
         const bool aok = audio.begin();
@@ -122,7 +132,7 @@ namespace App
 
         backend.begin();
 
-        Serial.println("[boot] motors + IR(front) + BH1750 + MPU-6050 + WS2812B + I2S audio + OLED + backend ws/http");
+        Serial.println("[boot] motors + IR(front) + BH1750 + MPU-6050 + RC522 + WS2812B + I2S audio + OLED + backend ws/http");
         Serial.println("[boot] obstacle policy: blocks FORWARD, reverse allowed");
         console.printHelp();
     }

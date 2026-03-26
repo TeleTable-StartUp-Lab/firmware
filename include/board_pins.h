@@ -23,6 +23,12 @@ namespace BoardPins
     constexpr gpio_num_t I2C_SDA = GPIO_NUM_21;
     constexpr gpio_num_t I2C_SCL = GPIO_NUM_22;
 
+    constexpr gpio_num_t RC522_SDA_SS = GPIO_NUM_5;
+    constexpr gpio_num_t RC522_SCK = GPIO_NUM_18;
+    constexpr gpio_num_t RC522_MOSI = GPIO_NUM_23;
+    constexpr gpio_num_t RC522_MISO = GPIO_NUM_19;
+    constexpr gpio_num_t RC522_RST = GPIO_NUM_13;
+
     constexpr gpio_num_t LED_STRIP_DATA = GPIO_NUM_4;
 
     constexpr float LED_LUX_ON_THRESHOLD = 25.0f;  // LED ON if darker than this
