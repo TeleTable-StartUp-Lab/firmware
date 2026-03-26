@@ -3,6 +3,12 @@
 
 namespace BoardPins
 {
+    constexpr uint8_t OLED_I2C_ADDRESS = 0x3C;
+    constexpr uint8_t BH1750_I2C_ADDRESS = 0x23;
+    constexpr uint8_t MPU6050_I2C_ADDRESS = 0x68;
+    constexpr uint8_t MPU6050_I2C_ADDRESS_ALT = 0x69;
+
+    constexpr int8_t OLED_RESET_PIN = -1;
 
     constexpr gpio_num_t LEFT_MOTOR_IN1 = GPIO_NUM_25;
     constexpr gpio_num_t LEFT_MOTOR_IN2 = GPIO_NUM_26;

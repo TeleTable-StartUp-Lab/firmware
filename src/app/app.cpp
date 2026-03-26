@@ -94,12 +94,15 @@ namespace App
         scanI2C();
 
         const bool dok = oled.begin();
-        Serial.printf("[oled] init %s (addr=0x%02X)\n", dok ? "ok" : "fail", 0x3C);
+        Serial.printf("[oled] init %s (addr=0x%02X)\n", dok ? "ok" : "fail", BoardPins::OLED_I2C_ADDRESS);
         if (dok)
             oled.bootScreen();
 
         const bool lok = sensors.beginLux();
-        Serial.printf("[bh1750] init %s (addr=0x%02X)\n", lok ? "ok" : "fail", 0x23);
+        Serial.printf("[bh1750] init %s (addr=0x%02X)\n", lok ? "ok" : "fail", BoardPins::BH1750_I2C_ADDRESS);
+
+        const bool mok = sensors.beginImu();
+        Serial.printf("[mpu6050] init %s (addr=0x%02X)\n", mok ? "ok" : "fail", sensors.imuAddress());
 
         leds.begin();
 
@@ -119,7 +122,7 @@ namespace App
 
         backend.begin();
 
-        Serial.println("[boot] motors + IR(front) + BH1750 + WS2812B + I2S audio + OLED + backend ws/http");
+        Serial.println("[boot] motors + IR(front) + BH1750 + MPU-6050 + WS2812B + I2S audio + OLED + backend ws/http");
         Serial.println("[boot] obstacle policy: blocks FORWARD, reverse allowed");
         console.printHelp();
     }

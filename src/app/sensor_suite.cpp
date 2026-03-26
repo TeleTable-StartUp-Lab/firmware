@@ -8,7 +8,8 @@ SensorSuite::SensorSuite()
     : irLeft({.pin = BoardPins::IR_LEFT, .active_low = BoardPins::IR_ACTIVE_LOW, .debounce_ms = 30, .use_internal_pullup = false}),
       irMid({.pin = BoardPins::IR_MIDDLE, .active_low = BoardPins::IR_ACTIVE_LOW, .debounce_ms = 30, .use_internal_pullup = false}),
       irRight({.pin = BoardPins::IR_RIGHT, .active_low = BoardPins::IR_ACTIVE_LOW, .debounce_ms = 30, .use_internal_pullup = false}),
-      lightSensor({.wire = &Wire, .address = 0x23, .sample_period_ms = 250}),
+      lightSensor({.wire = &Wire, .address = BoardPins::BH1750_I2C_ADDRESS, .sample_period_ms = 250}),
+      imuSensor({.wire = &Wire, .address = BoardPins::MPU6050_I2C_ADDRESS, .sample_period_ms = 100}),
       irWatch(true),
       irPeriodic(false),
       luxPeriodic(true),
@@ -27,6 +28,16 @@ void SensorSuite::beginIr()
 bool SensorSuite::beginLux()
 {
     return lightSensor.begin();
+}
+
+bool SensorSuite::beginImu()
+{
+    imuSensor.setAddress(BoardPins::MPU6050_I2C_ADDRESS);
+    if (imuSensor.begin())
+        return true;
+
+    imuSensor.setAddress(BoardPins::MPU6050_I2C_ADDRESS_ALT);
+    return imuSensor.begin();
 }
 
 void SensorSuite::update(uint32_t nowMs)
@@ -60,6 +71,7 @@ void SensorSuite::update(uint32_t nowMs)
     }
 
     lightSensor.update(nowMs);
+    imuSensor.update(nowMs);
 
     if (luxPeriodic && (nowMs - lastLuxPrintMs >= 500))
     {
@@ -129,4 +141,19 @@ bool SensorSuite::hasLux() const
 float SensorSuite::lux() const
 {
     return lightSensor.lux();
+}
+
+bool SensorSuite::hasImu() const
+{
+    return imuSensor.hasReading();
+}
+
+uint8_t SensorSuite::imuAddress() const
+{
+    return imuSensor.address();
+}
+
+const Mpu6050Sensor::Reading &SensorSuite::imu() const
+{
+    return imuSensor.reading();
 }
