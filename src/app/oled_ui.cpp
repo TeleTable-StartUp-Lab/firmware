@@ -6,92 +6,103 @@
 
 #include <Wire.h>
 
-OledUi::OledUi(SensorSuite &sensorsRef, LedController &ledsRef, DriveController &driveRef)
-    : oled({.wire = &Wire, .address = BoardPins::OLED_I2C_ADDRESS, .width = 128, .height = 64, .reset_pin = BoardPins::OLED_RESET_PIN}),
-      sensors(sensorsRef),
-      leds(ledsRef),
-      drive(driveRef),
-      lastOledMs(0)
+namespace
+{
+    constexpr uint8_t OLED_WIDTH = 128;
+    constexpr uint8_t OLED_HEIGHT = 32;
+    constexpr uint8_t OLED_LINE_COUNT = OLED_HEIGHT / 8;
+    constexpr uint32_t OLED_RECOVERY_INTERVAL_MS = 5000;
+}
+
+OledUi::OledUi(RobotState &stateRef)
+    : oled({.wire = &Wire, .address = BoardPins::OLED_I2C_ADDRESS, .width = OLED_WIDTH, .height = OLED_HEIGHT, .reset_pin = BoardPins::OLED_RESET_PIN}),
+      state(stateRef),
+      lastOledMs(0),
+      lastRecoveryAttemptMs(0)
 {
 }
 
 bool OledUi::begin()
 {
+    lastRecoveryAttemptMs = millis();
     return oled.begin();
 }
 
 void OledUi::bootScreen()
 {
-    String l[6];
+    String l[OLED_LINE_COUNT];
     l[0] = "Firmware Teletable";
     l[1] = "I2C: OLED   0x" + String(BoardPins::OLED_I2C_ADDRESS, HEX);
     l[2] = "I2C: BH1750 0x" + String(BoardPins::BH1750_I2C_ADDRESS, HEX);
-    l[3] = "I2C: MPU   0x" + String(BoardPins::MPU6050_I2C_ADDRESS, HEX);
-    l[4] = "Booting...";
-    l[5] = "";
-    oled.setLines(l, 6);
+    l[3] = "Booting...";
+    oled.setLines(l, OLED_LINE_COUNT);
     oled.show();
 }
 
 void OledUi::update(uint32_t nowMs)
 {
     if (!oled.isOk())
+    {
+        if (nowMs - lastRecoveryAttemptMs >= OLED_RECOVERY_INTERVAL_MS)
+        {
+            lastRecoveryAttemptMs = nowMs;
+            const bool recovered = recover();
+            Serial.printf("[oled] recovery %s (present=%d addr=0x%02X)\n",
+                          recovered ? "ok" : "fail",
+                          probe() ? 1 : 0,
+                          BoardPins::OLED_I2C_ADDRESS);
+        }
         return;
+    }
 
     if (nowMs - lastOledMs < 500)
         return;
     lastOledMs = nowMs;
 
-    String l[6];
+    String l[OLED_LINE_COUNT];
+    l[0] = WifiManager::isConnected() ? ("IP: " + WifiManager::ip()) : "IP: offline";
+    l[1] = String("WS: ") + (WsControlClient::isConnected() ? "connected" : "offline");
+    l[2] = String("State: ") + state.driveModeToBackend();
 
-    if (sensors.hasImu())
-    {
-        const auto &imu = sensors.imu();
-        const uint8_t page = static_cast<uint8_t>((nowMs / 2500U) % 2U);
-
-        if (page == 0)
-        {
-            l[0] = "MPU6050 Accel";
-            l[1] = "Ax:" + String(imu.accel_x_g, 2) + " g";
-            l[2] = "Ay:" + String(imu.accel_y_g, 2) + " g";
-            l[3] = "Az:" + String(imu.accel_z_g, 2) + " g";
-            l[4] = "T:" + String(imu.temperature_c, 1) + " C";
-            l[5] = sensors.hasLux() ? ("Lux:" + String(sensors.lux(), 1)) : "Lux:n/a";
-        }
-        else
-        {
-            l[0] = "MPU6050 Gyro";
-            l[1] = "Gx:" + String(imu.gyro_x_dps, 1) + " d/s";
-            l[2] = "Gy:" + String(imu.gyro_y_dps, 1) + " d/s";
-            l[3] = "Gz:" + String(imu.gyro_z_dps, 1) + " d/s";
-            l[4] = String("WiFi:") + (WifiManager::isConnected() ? "ok" : "off");
-            l[5] = drive.obstacleFrontActive() ? "IR: FRONT BLOCK" : (String("WS:") + (WsControlClient::isConnected() ? "ok" : "off"));
-        }
-    }
-    else
-    {
-        l[0] = "Firmware Teletable";
-
-        if (WifiManager::isConnected())
-            l[1] = "WiFi: " + WifiManager::ip();
-        else
-            l[1] = "WiFi: disconnected";
-
-        if (sensors.hasLux())
-            l[2] = "Lux: " + String(sensors.lux(), 1);
-        else
-            l[2] = "Lux: n/a";
-
-        l[3] = String("LED: ") + (leds.isEnabled() ? "on" : "off") + (leds.isAutoEnabled() ? " (A)" : " (M)");
-        l[4] = String("WS: ") + (WsControlClient::isConnected() ? "connected" : "offline");
-        l[5] = drive.obstacleFrontActive() ? "IR: FRONT BLOCK" : "";
-    }
-
-    oled.setLines(l, 6);
+    oled.setLines(l, OLED_LINE_COUNT);
     oled.show();
 }
 
 bool OledUi::isOk() const
 {
     return oled.isOk();
+}
+
+bool OledUi::probe() const
+{
+    return oled.probe();
+}
+
+bool OledUi::recover()
+{
+    lastRecoveryAttemptMs = millis();
+
+    const bool ok = oled.recover();
+    if (ok)
+    {
+        lastOledMs = 0;
+        bootScreen();
+    }
+    return ok;
+}
+
+void OledUi::clear()
+{
+    oled.clear();
+}
+
+void OledUi::showTestScreen()
+{
+    String l[OLED_LINE_COUNT];
+    l[0] = "OLED diagnostic";
+    l[1] = "Addr: 0x" + String(BoardPins::OLED_I2C_ADDRESS, HEX);
+    l[2] = String("Bus: ") + (probe() ? "ok" : "missing");
+    l[3] = String("WiFi: ") + (WifiManager::isConnected() ? "ok" : "off");
+    oled.setLines(l, OLED_LINE_COUNT);
+    oled.show();
 }

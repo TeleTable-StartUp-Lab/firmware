@@ -7,6 +7,7 @@
 #include "app/sensor_suite.h"
 #include "app/serial_console.h"
 #include "drivers/i2s_audio.h"
+#include "net/backend_client.h"
 
 class ConsoleCommander
 {
@@ -18,6 +19,8 @@ public:
     void printHelp();
 
 private:
+    void printBackendPing();
+
     SerialConsole console;
     DriveController &drive;
     SensorSuite &sensors;

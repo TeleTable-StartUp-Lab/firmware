@@ -3,7 +3,6 @@
 
 namespace WifiManager
 {
-
     bool begin(const char *ssid, const char *pass, uint32_t timeout_ms)
     {
         WiFi.mode(WIFI_STA);

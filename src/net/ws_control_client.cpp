@@ -16,6 +16,20 @@ namespace
     uint32_t g_lastReconnectMs = 0;
     constexpr uint32_t RECONNECT_INTERVAL_MS = 3000;
 
+    void beginWsConnection()
+    {
+        if (BackendConfig::USE_TLS)
+        {
+            if (BackendConfig::TLS_INSECURE || !BackendConfig::TLS_CA_CERT)
+                g_ws.beginSSL(BackendConfig::HOST, BackendConfig::PORT, BackendConfig::WS_PATH);
+            else
+                g_ws.beginSslWithCA(BackendConfig::HOST, BackendConfig::PORT, BackendConfig::WS_PATH, BackendConfig::TLS_CA_CERT);
+            return;
+        }
+
+        g_ws.begin(BackendConfig::HOST, BackendConfig::PORT, BackendConfig::WS_PATH);
+    }
+
     void handleJsonMessage(const char *payload, size_t len)
     {
         JsonDocument doc;
@@ -116,7 +130,7 @@ namespace WsControlClient
     {
         g_handlers = handlers;
 
-        g_ws.begin(BackendConfig::HOST, BackendConfig::PORT, BackendConfig::WS_PATH);
+        beginWsConnection();
         g_ws.onEvent(wsEvent);
         g_ws.setReconnectInterval(RECONNECT_INTERVAL_MS);
         g_ws.enableHeartbeat(15000, 3000, 2);
@@ -134,7 +148,7 @@ namespace WsControlClient
         {
             g_lastReconnectMs = nowMs;
             g_ws.disconnect();
-            g_ws.begin(BackendConfig::HOST, BackendConfig::PORT, BackendConfig::WS_PATH);
+            beginWsConnection();
         }
     }
 

@@ -33,10 +33,9 @@ namespace
                     .dout_pin = static_cast<int>(BoardPins::I2S_DOUT),
                     .sample_rate_hz = 22050});
 
-    OledUi oled(sensors, leds, drive);
-    ConsoleCommander console(drive, sensors, leds, audio);
-
     RobotState state;
+    OledUi oled(state);
+    ConsoleCommander console(drive, sensors, leds, audio);
     BackendCoordinator backend(state, drive, sensors, leds, audio);
 
     void statusPrintTask(uint32_t nowMs)

@@ -1,6 +1,8 @@
 #include "app/console_commander.h"
 
 #include "app/app_utils.h"
+#include "net/backend_config.h"
+#include "net/wifi_manager.h"
 
 ConsoleCommander::ConsoleCommander(DriveController &driveRef, SensorSuite &sensorsRef, LedController &ledsRef, I2sAudio &audioRef)
     : drive(driveRef), sensors(sensorsRef), leds(ledsRef), audio(audioRef)
@@ -35,6 +37,7 @@ void ConsoleCommander::printHelp()
     Serial.println("  vol <0..100>               - set audio volume percent");
     Serial.println("  beep                       - play short test beep");
     Serial.println("  beep <hz> <ms>             - play beep with frequency and duration");
+    Serial.println("  backendping                - ICMP ping backend host");
 }
 
 void ConsoleCommander::handle()
@@ -251,5 +254,55 @@ void ConsoleCommander::handle()
         return;
     }
 
+    if (trimmed.equalsIgnoreCase("backendping"))
+    {
+        printBackendPing();
+        return;
+    }
+
     Serial.printf("[console] unknown: %s\n", trimmed.c_str());
+}
+
+void ConsoleCommander::printBackendPing()
+{
+    Serial.printf("PING %s: 64 data bytes\n", BackendConfig::HOST);
+
+    const BackendClient::PingResult result = BackendClient::ping();
+    if (!result.wifiConnected)
+    {
+        Serial.printf("[backend] ping fail: wifi=disconnected ip=%s\n", WifiManager::ip().c_str());
+        return;
+    }
+
+    if (!result.targetValid)
+    {
+        Serial.printf("[backend] ping fail: invalid target=%s\n", BackendConfig::HOST);
+        return;
+    }
+
+    if (!result.sessionStarted)
+    {
+        Serial.println("[backend] ping fail: session start failed");
+        return;
+    }
+
+    Serial.printf("--- %s ping statistics ---\n", BackendConfig::HOST);
+
+    const uint32_t packetLossPct = (result.transmitted > 0)
+                                       ? ((result.transmitted - result.received) * 100U) / result.transmitted
+                                       : 0;
+
+    Serial.printf("%lu packets transmitted, %lu received, %lu%% packet loss, time %lums\n",
+                  static_cast<unsigned long>(result.transmitted),
+                  static_cast<unsigned long>(result.received),
+                  static_cast<unsigned long>(packetLossPct),
+                  static_cast<unsigned long>(result.durationMs));
+
+    if (result.received > 0)
+    {
+        Serial.printf("round-trip min/avg/max = %lums/%lums/%lums\n",
+                      static_cast<unsigned long>(result.minTimeMs),
+                      static_cast<unsigned long>(result.avgTimeMs),
+                      static_cast<unsigned long>(result.maxTimeMs));
+    }
 }

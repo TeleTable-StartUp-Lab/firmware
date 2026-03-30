@@ -27,14 +27,19 @@ static OledDisplayImpl *g_impl = nullptr;
 
 bool OledDisplay::begin()
 {
+    ok_ = false;
+
     if (!cfg_.wire)
         return false;
 
     if (!g_impl)
         g_impl = new OledDisplayImpl(cfg_.width, cfg_.height, cfg_.wire, cfg_.reset_pin);
 
-    ok_ = g_impl->ssd.begin(SSD1306_SWITCHCAPVCC, cfg_.address);
-    if (!ok_)
+    const bool libOk = g_impl->ssd.begin(SSD1306_SWITCHCAPVCC, cfg_.address);
+    if (!libOk)
+        return false;
+
+    if (!probe())
         return false;
 
     g_impl->ssd.clearDisplay();
@@ -43,10 +48,36 @@ bool OledDisplay::begin()
     g_impl->ssd.setCursor(0, 0);
     g_impl->ssd.print("OLED ok");
     g_impl->ssd.display();
+    ok_ = true;
     return true;
 }
 
 bool OledDisplay::isOk() const { return ok_; }
+
+bool OledDisplay::probe() const
+{
+    if (!cfg_.wire)
+        return false;
+
+    cfg_.wire->beginTransmission(cfg_.address);
+    return cfg_.wire->endTransmission() == 0;
+}
+
+bool OledDisplay::recover()
+{
+    ok_ = false;
+
+    if (g_impl)
+    {
+        delete g_impl;
+        g_impl = nullptr;
+    }
+
+    if (!probe())
+        return false;
+
+    return begin();
+}
 
 uint8_t OledDisplay::maxLines() const
 {

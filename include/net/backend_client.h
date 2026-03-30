@@ -3,6 +3,22 @@
 
 namespace BackendClient
 {
+    struct PingResult
+    {
+        bool wifiConnected;
+        bool targetValid;
+        bool sessionStarted;
+        bool sessionFinished;
+        uint32_t transmitted;
+        uint32_t received;
+        uint32_t durationMs;
+        uint32_t minTimeMs;
+        uint32_t maxTimeMs;
+        uint32_t avgTimeMs;
+    };
+
+    PingResult ping();
+
     bool registerRobot(uint16_t robotPort);
 
     bool postState(const String &systemHealth,

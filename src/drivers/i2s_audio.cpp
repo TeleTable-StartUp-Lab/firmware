@@ -1,8 +1,19 @@
 #include "drivers/i2s_audio.h"
+
+#include <algorithm>
 #include <cmath>
 #include <driver/i2s.h>
 
 I2sAudio::I2sAudio(const Config &cfg) : cfg_(cfg) {}
+
+namespace
+{
+#if defined(I2S_COMM_FORMAT_STAND_I2S)
+    constexpr i2s_comm_format_t kI2sCommFormat = I2S_COMM_FORMAT_STAND_I2S;
+#else
+    constexpr i2s_comm_format_t kI2sCommFormat = I2S_COMM_FORMAT_I2S;
+#endif
+}
 
 bool I2sAudio::begin()
 {
@@ -10,8 +21,8 @@ bool I2sAudio::begin()
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
         .sample_rate = (int)cfg_.sample_rate_hz,
         .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
-        .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT, // mono
-        .communication_format = I2S_COMM_FORMAT_I2S,
+        .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
+        .communication_format = kI2sCommFormat,
         .intr_alloc_flags = 0,
         .dma_buf_count = 8,
         .dma_buf_len = 256,
@@ -54,12 +65,15 @@ void I2sAudio::playBeep(uint16_t freq_hz, uint16_t duration_ms)
 
     const uint32_t sr = cfg_.sample_rate_hz;
     const uint32_t total_samples = (uint32_t)((uint64_t)sr * duration_ms / 1000ULL);
+    if (total_samples == 0)
+        return;
 
     const float amp = 0.25f * volume_; // safe headroom
     const float w = 2.0f * 3.14159265358979323846f * (float)freq_hz / (float)sr;
+    float phase = 0.0f;
 
-    // Small chunk buffer
-    int16_t buf[256];
+    // Duplicate mono samples onto both I2S slots.
+    int16_t buf[512];
     uint32_t produced = 0;
 
     while (produced < total_samples)
@@ -68,13 +82,15 @@ void I2sAudio::playBeep(uint16_t freq_hz, uint16_t duration_ms)
 
         for (uint32_t i = 0; i < chunk; ++i)
         {
-            const float s = sinf(w * (float)(produced + i));
+            phase += w;
+            const float s = sinf(phase);
             const int16_t sample = (int16_t)(s * 32767.0f * amp);
-            buf[i] = sample;
+            buf[(i * 2) + 0] = sample;
+            buf[(i * 2) + 1] = sample;
         }
 
         size_t bytes_written = 0;
-        i2s_write(I2S_NUM_0, buf, chunk * sizeof(int16_t), &bytes_written, portMAX_DELAY);
+        i2s_write(I2S_NUM_0, buf, chunk * 2 * sizeof(int16_t), &bytes_written, portMAX_DELAY);
         produced += chunk;
     }
 }

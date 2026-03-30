@@ -18,6 +18,8 @@ public:
 
     bool begin();
     bool isOk() const;
+    bool probe() const;
+    bool recover();
 
     uint8_t maxLines() const;
 
