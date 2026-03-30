@@ -38,5 +38,5 @@ namespace BoardPins
 
     constexpr gpio_num_t I2S_BCLK = GPIO_NUM_27;
     constexpr gpio_num_t I2S_LRCLK = GPIO_NUM_14;
-    constexpr gpio_num_t I2S_DOUT = GPIO_NUM_12;
+    constexpr gpio_num_t I2S_DOUT = GPIO_NUM_16;
 }
