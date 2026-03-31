@@ -3,12 +3,13 @@
 #include <Arduino.h>
 
 #include "app/robot_state.h"
+#include "app/sensor_suite.h"
 #include "drivers/oled_display.h"
 
 class OledUi
 {
 public:
-    explicit OledUi(RobotState &state);
+    OledUi(RobotState &state, SensorSuite &sensors);
 
     bool begin();
     void bootScreen();
@@ -23,6 +24,7 @@ public:
 private:
     OledDisplay oled;
     RobotState &state;
+    SensorSuite &sensors;
     uint32_t lastOledMs;
     uint32_t lastRecoveryAttemptMs;
 };

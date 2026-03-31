@@ -30,6 +30,11 @@ namespace RobotHttpServer
         float lux;
         bool luxValid;
 
+        float batteryVoltage;
+        float batteryCurrentA;
+        float batteryPowerW;
+        bool powerValid;
+
         bool ledEnabled;
         bool ledAutoEnabled;
 

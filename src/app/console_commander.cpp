@@ -28,6 +28,10 @@ void ConsoleCommander::printHelp()
     Serial.println("  irperiodic on|off           - periodic IR snapshot every 500ms");
     Serial.println("  lux                        - print light sensor lux once");
     Serial.println("  luxperiodic on|off          - periodic lux print every 500ms");
+    Serial.println("  imu                        - print MPU6050 values once");
+    Serial.println("  imuperiodic on|off          - periodic MPU6050 print every 500ms");
+    Serial.println("  power                      - print INA226 battery/current once");
+    Serial.println("  powerperiodic on|off        - periodic INA226 print every 500ms");
     Serial.println("  rfid                       - print last RFID card once");
     Serial.println("  rfidwatch on|off           - print RFID reads automatically");
     Serial.println("  led on|off                 - manual LED on/off");
@@ -159,6 +163,52 @@ void ConsoleCommander::handle()
             }
         }
         Serial.println("[lux] usage: luxperiodic on|off");
+        return;
+    }
+
+    if (trimmed.equalsIgnoreCase("imu"))
+    {
+        sensors.printImuOnce();
+        return;
+    }
+
+    if (trimmed.startsWith("imuperiodic"))
+    {
+        int sp = trimmed.indexOf(' ');
+        if (sp > 0)
+        {
+            bool on = false;
+            if (parseOnOffOr01(trimmed.substring(sp + 1), on))
+            {
+                sensors.setImuPeriodic(on);
+                Serial.printf("[mpu6050] periodic %s\n", on ? "on" : "off");
+                return;
+            }
+        }
+        Serial.println("[mpu6050] usage: imuperiodic on|off");
+        return;
+    }
+
+    if (trimmed.equalsIgnoreCase("power"))
+    {
+        sensors.printPowerOnce();
+        return;
+    }
+
+    if (trimmed.startsWith("powerperiodic"))
+    {
+        int sp = trimmed.indexOf(' ');
+        if (sp > 0)
+        {
+            bool on = false;
+            if (parseOnOffOr01(trimmed.substring(sp + 1), on))
+            {
+                sensors.setPowerPeriodic(on);
+                Serial.printf("[ina226] periodic %s\n", on ? "on" : "off");
+                return;
+            }
+        }
+        Serial.println("[ina226] usage: powerperiodic on|off");
         return;
     }
 

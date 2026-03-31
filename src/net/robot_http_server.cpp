@@ -78,6 +78,9 @@ namespace RobotHttpServer
         doc["batteryLevel"] = s.batteryLevel;
         doc["driveMode"] = modeToStr(s.driveMode);
         doc["cargoStatus"] = s.cargoStatus ? s.cargoStatus : "UNKNOWN";
+        doc["batteryVoltage"] = s.powerValid ? s.batteryVoltage : 0.0f;
+        doc["batteryCurrentA"] = s.powerValid ? s.batteryCurrentA : 0.0f;
+        doc["batteryPowerW"] = s.powerValid ? s.batteryPowerW : 0.0f;
 
         JsonObject lastRoute = doc["lastRoute"].to<JsonObject>();
         lastRoute["startNode"] = s.lastRouteStart ? s.lastRouteStart : "";
@@ -95,6 +98,12 @@ namespace RobotHttpServer
         JsonObject light = sensors["light"].to<JsonObject>();
         light["luxValid"] = s.luxValid;
         light["lux"] = s.luxValid ? s.lux : 0.0f;
+
+        JsonObject power = sensors["power"].to<JsonObject>();
+        power["valid"] = s.powerValid;
+        power["batteryVoltage"] = s.powerValid ? s.batteryVoltage : 0.0f;
+        power["currentA"] = s.powerValid ? s.batteryCurrentA : 0.0f;
+        power["powerW"] = s.powerValid ? s.batteryPowerW : 0.0f;
 
         JsonObject led = doc["led"].to<JsonObject>();
         led["enabled"] = s.ledEnabled;

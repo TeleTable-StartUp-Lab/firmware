@@ -10,6 +10,12 @@ SensorSuite::SensorSuite()
       irMid({.pin = BoardPins::IR_MIDDLE, .active_low = BoardPins::IR_ACTIVE_LOW, .debounce_ms = 30, .use_internal_pullup = false}),
       irRight({.pin = BoardPins::IR_RIGHT, .active_low = BoardPins::IR_ACTIVE_LOW, .debounce_ms = 30, .use_internal_pullup = false}),
       lightSensor({.wire = &Wire, .address = BoardPins::BH1750_I2C_ADDRESS, .sample_period_ms = 250}),
+      powerSensor({.wire = &Wire,
+                   .address = BoardPins::INA226_I2C_ADDRESS,
+                   .sample_period_ms = 250,
+                   .shunt_ohms = BoardPins::INA226_SHUNT_OHMS,
+                   .battery_empty_voltage = BoardPins::BATTERY_EMPTY_VOLTAGE,
+                   .battery_full_voltage = BoardPins::BATTERY_FULL_VOLTAGE}),
       imuSensor({.wire = &Wire, .address = BoardPins::MPU6050_I2C_ADDRESS, .sample_period_ms = 100}),
       rfidSensor({.spi = &SPI,
                   .sck_pin = BoardPins::RC522_SCK,
@@ -21,9 +27,13 @@ SensorSuite::SensorSuite()
       irWatch(true),
       irPeriodic(false),
       luxPeriodic(false),
+      imuPeriodic(false),
+      powerPeriodic(false),
       rfidWatch(true),
       lastIrPrintMs(0),
-      lastLuxPrintMs(0)
+      lastLuxPrintMs(0),
+      lastImuPrintMs(0),
+      lastPowerPrintMs(0)
 {
 }
 
@@ -37,6 +47,11 @@ void SensorSuite::beginIr()
 bool SensorSuite::beginLux()
 {
     return lightSensor.begin();
+}
+
+bool SensorSuite::beginPowerMonitor()
+{
+    return powerSensor.begin();
 }
 
 bool SensorSuite::beginImu()
@@ -85,6 +100,7 @@ void SensorSuite::update(uint32_t nowMs)
     }
 
     lightSensor.update(nowMs);
+    powerSensor.update(nowMs);
     imuSensor.update(nowMs);
 
     if (rfidSensor.update(nowMs) && rfidWatch)
@@ -94,6 +110,18 @@ void SensorSuite::update(uint32_t nowMs)
     {
         lastLuxPrintMs = nowMs;
         printLuxOnce();
+    }
+
+    if (imuPeriodic && (nowMs - lastImuPrintMs >= 500))
+    {
+        lastImuPrintMs = nowMs;
+        printImuOnce();
+    }
+
+    if (powerPeriodic && (nowMs - lastPowerPrintMs >= 500))
+    {
+        lastPowerPrintMs = nowMs;
+        printPowerOnce();
     }
 }
 
@@ -113,6 +141,42 @@ void SensorSuite::printLuxOnce()
         return;
     }
     Serial.printf("[lux] %.1f lx\n", static_cast<double>(lightSensor.lux()));
+}
+
+void SensorSuite::printImuOnce() const
+{
+    if (!imuSensor.hasReading())
+    {
+        Serial.println("[mpu6050] no reading");
+        return;
+    }
+
+    const auto &reading = imuSensor.reading();
+    Serial.printf("[mpu6050] accel=%.2fg %.2fg %.2fg gyro=%.2fdps %.2fdps %.2fdps temp=%.2fC\n",
+                  static_cast<double>(reading.accel_x_g),
+                  static_cast<double>(reading.accel_y_g),
+                  static_cast<double>(reading.accel_z_g),
+                  static_cast<double>(reading.gyro_x_dps),
+                  static_cast<double>(reading.gyro_y_dps),
+                  static_cast<double>(reading.gyro_z_dps),
+                  static_cast<double>(reading.temperature_c));
+}
+
+void SensorSuite::printPowerOnce() const
+{
+    if (!powerSensor.hasReading())
+    {
+        Serial.println("[ina226] no reading");
+        return;
+    }
+
+    const auto &reading = powerSensor.reading();
+    Serial.printf("[ina226] battery=%d%% bus=%.3fV current=%.3fA power=%.3fW shunt=%.3fmV\n",
+                  reading.battery_percent,
+                  static_cast<double>(reading.bus_voltage_v),
+                  static_cast<double>(reading.current_a),
+                  static_cast<double>(reading.power_w),
+                  static_cast<double>(reading.shunt_voltage_mv));
 }
 
 void SensorSuite::printRfidOnce() const
@@ -152,6 +216,16 @@ void SensorSuite::setLuxPeriodic(bool on)
     luxPeriodic = on;
 }
 
+void SensorSuite::setImuPeriodic(bool on)
+{
+    imuPeriodic = on;
+}
+
+void SensorSuite::setPowerPeriodic(bool on)
+{
+    powerPeriodic = on;
+}
+
 void SensorSuite::setRfidWatch(bool on)
 {
     rfidWatch = on;
@@ -185,6 +259,36 @@ bool SensorSuite::hasLux() const
 float SensorSuite::lux() const
 {
     return lightSensor.lux();
+}
+
+bool SensorSuite::hasPowerMonitor() const
+{
+    return powerSensor.hasReading();
+}
+
+int SensorSuite::batteryLevel() const
+{
+    return powerSensor.hasReading() ? powerSensor.reading().battery_percent : 0;
+}
+
+float SensorSuite::batteryVoltage() const
+{
+    return powerSensor.hasReading() ? powerSensor.reading().bus_voltage_v : 0.0f;
+}
+
+float SensorSuite::batteryCurrentA() const
+{
+    return powerSensor.hasReading() ? powerSensor.reading().current_a : 0.0f;
+}
+
+float SensorSuite::batteryPowerW() const
+{
+    return powerSensor.hasReading() ? powerSensor.reading().power_w : 0.0f;
+}
+
+const Ina226Sensor::Reading &SensorSuite::powerReading() const
+{
+    return powerSensor.reading();
 }
 
 bool SensorSuite::hasImu() const

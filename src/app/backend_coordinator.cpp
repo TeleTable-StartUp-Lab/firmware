@@ -34,7 +34,7 @@ void BackendCoordinator::begin()
         {
             RobotHttpServer::StatusSnapshot s{};
             s.systemHealth = "OK";
-            s.batteryLevel = 85;
+            s.batteryLevel = sensors.batteryLevel();
             s.driveMode = state.driveMode();
             s.cargoStatus = "EMPTY";
 
@@ -48,6 +48,11 @@ void BackendCoordinator::begin()
 
             s.luxValid = sensors.hasLux();
             s.lux = s.luxValid ? sensors.lux() : 0.0f;
+
+            s.powerValid = sensors.hasPowerMonitor();
+            s.batteryVoltage = s.powerValid ? sensors.batteryVoltage() : 0.0f;
+            s.batteryCurrentA = s.powerValid ? sensors.batteryCurrentA() : 0.0f;
+            s.batteryPowerW = s.powerValid ? sensors.batteryPowerW() : 0.0f;
 
             s.ledEnabled = leds.isEnabled();
             s.ledAutoEnabled = leds.isAutoEnabled();
@@ -191,7 +196,7 @@ void BackendCoordinator::stateTask(uint32_t nowMs)
 
     if (!BackendClient::queueState(
             "OK",
-            85,
+            sensors.batteryLevel(),
             state.driveModeToBackend(),
             "EMPTY",
             state.position().length() ? state.position() : String(""),

@@ -34,7 +34,7 @@ namespace
                     .sample_rate_hz = 22050});
 
     RobotState state;
-    OledUi oled(state);
+    OledUi oled(state, sensors);
     ConsoleCommander console(drive, sensors, leds, audio);
     BackendCoordinator backend(state, drive, sensors, leds, audio);
 
@@ -45,13 +45,16 @@ namespace
 
         lastStatusPrintMs = nowMs;
 
-        Serial.printf("[status] wifi=%s ip=%s ws=%s mode=%s obs_front=%d\n",
+        Serial.printf("[status] wifi=%s ip=%s ws=%s mode=%s obs_front=%d batt=%d%% voltage=%.2fV current=%.2fA\n",
                       WifiManager::isConnected() ? "ok" : "no",
                       WifiManager::ip().c_str(),
                       WsControlClient::isConnected() ? "ok" : "no",
                       (state.driveMode() == RobotHttpServer::DriveMode::IDLE) ? "IDLE" : (state.driveMode() == RobotHttpServer::DriveMode::MANUAL) ? "MANUAL"
                                                                                                                                                    : "AUTO",
-                      drive.obstacleFrontActive() ? 1 : 0);
+                      drive.obstacleFrontActive() ? 1 : 0,
+                      sensors.batteryLevel(),
+                      static_cast<double>(sensors.batteryVoltage()),
+                      static_cast<double>(sensors.batteryCurrentA()));
     }
 
     void scanI2C()
@@ -101,6 +104,9 @@ namespace App
         const bool lok = sensors.beginLux();
         Serial.printf("[bh1750] init %s (addr=0x%02X)\n", lok ? "ok" : "fail", BoardPins::BH1750_I2C_ADDRESS);
 
+        const bool pok = sensors.beginPowerMonitor();
+        Serial.printf("[ina226] init %s (addr=0x%02X)\n", pok ? "ok" : "fail", BoardPins::INA226_I2C_ADDRESS);
+
         const bool mok = sensors.beginImu();
         Serial.printf("[mpu6050] init %s (addr=0x%02X)\n", mok ? "ok" : "fail", sensors.imuAddress());
 
@@ -131,7 +137,7 @@ namespace App
             backend.pushState();
         }
 
-        Serial.println("[boot] motors + IR(front) + BH1750 + MPU-6050 + RC522 + WS2812B + I2S audio + OLED + backend ws/http");
+        Serial.println("[boot] motors + IR(front) + BH1750 + INA226 + MPU-6050 + RC522 + WS2812B + I2S audio + OLED + backend ws/http");
         Serial.println("[boot] obstacle policy: blocks FORWARD, reverse allowed");
         console.printHelp();
     }

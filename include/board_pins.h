@@ -5,6 +5,7 @@ namespace BoardPins
 {
     constexpr uint8_t OLED_I2C_ADDRESS = 0x3C;
     constexpr uint8_t BH1750_I2C_ADDRESS = 0x23;
+    constexpr uint8_t INA226_I2C_ADDRESS = 0x40;
     constexpr uint8_t MPU6050_I2C_ADDRESS = 0x68;
     constexpr uint8_t MPU6050_I2C_ADDRESS_ALT = 0x69;
 
@@ -22,6 +23,11 @@ namespace BoardPins
 
     constexpr gpio_num_t I2C_SDA = GPIO_NUM_21;
     constexpr gpio_num_t I2C_SCL = GPIO_NUM_22;
+
+    // Defaults are for a 1-cell Li-Ion pack. Adjust them to your INA226 shunt and battery pack.
+    constexpr float INA226_SHUNT_OHMS = 0.01f;
+    constexpr float BATTERY_EMPTY_VOLTAGE = 3.20f;
+    constexpr float BATTERY_FULL_VOLTAGE = 4.20f;
 
     constexpr gpio_num_t RC522_SDA_SS = GPIO_NUM_5;
     constexpr gpio_num_t RC522_SCK = GPIO_NUM_18;
