@@ -20,7 +20,7 @@ SensorSuite::SensorSuite()
                   .poll_period_ms = 100}),
       irWatch(true),
       irPeriodic(false),
-      luxPeriodic(true),
+      luxPeriodic(false),
       rfidWatch(true),
       lastIrPrintMs(0),
       lastLuxPrintMs(0)

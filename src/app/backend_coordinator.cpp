@@ -160,12 +160,13 @@ void BackendCoordinator::registerTask(uint32_t nowMs)
     if (!WifiManager::isConnected())
         return;
 
-    if (nowMs - lastBackendRegisterMs < 30000)
+    if (lastBackendRegisterMs != 0 && (nowMs - lastBackendRegisterMs) < 30000)
         return;
-    lastBackendRegisterMs = nowMs;
 
-    const bool ok = BackendClient::registerRobot(BackendConfig::ROBOT_PORT);
-    Serial.printf("[backend] register %s\n", ok ? "ok" : "fail");
+    if (!BackendClient::queueRegisterRobot(BackendConfig::ROBOT_PORT))
+        return;
+
+    lastBackendRegisterMs = nowMs;
 }
 
 void BackendCoordinator::pushState()
@@ -188,14 +189,17 @@ void BackendCoordinator::stateTask(uint32_t nowMs)
     if (stateUrgent && !minGapMet)
         return;
 
-    BackendClient::postState(
-        "OK",
-        85,
-        state.driveModeToBackend(),
-        "EMPTY",
-        state.position().length() ? state.position() : String(""),
-        state.lastRouteStart().length() ? state.lastRouteStart() : String(""),
-        state.lastRouteEnd().length() ? state.lastRouteEnd() : String(""));
+    if (!BackendClient::queueState(
+            "OK",
+            85,
+            state.driveModeToBackend(),
+            "EMPTY",
+            state.position().length() ? state.position() : String(""),
+            state.lastRouteStart().length() ? state.lastRouteStart() : String(""),
+            state.lastRouteEnd().length() ? state.lastRouteEnd() : String("")))
+    {
+        return;
+    }
 
     lastBackendStateMs = nowMs;
     stateDirty = false;
@@ -212,9 +216,10 @@ void BackendCoordinator::eventTask(uint32_t nowMs)
         return;
 
     const String eventToPost = pendingEvent;
+    if (!BackendClient::queueEvent(eventToPost))
+        return;
+
     eventPending = false;
     pendingEvent = "";
-
-    BackendClient::postEvent(eventToPost);
     lastBackendEventMs = nowMs;
 }

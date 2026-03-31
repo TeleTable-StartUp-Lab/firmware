@@ -17,9 +17,12 @@ namespace BackendClient
         uint32_t avgTimeMs;
     };
 
+    void begin();
+
     PingResult ping();
 
     bool registerRobot(uint16_t robotPort);
+    bool queueRegisterRobot(uint16_t robotPort);
 
     bool postState(const String &systemHealth,
                    int batteryLevel,
@@ -28,6 +31,14 @@ namespace BackendClient
                    const String &currentPosition,
                    const String &lastNode,
                    const String &targetNode);
+    bool queueState(const String &systemHealth,
+                    int batteryLevel,
+                    const String &driveMode,
+                    const String &cargoStatus,
+                    const String &currentPosition,
+                    const String &lastNode,
+                    const String &targetNode);
 
     bool postEvent(const String &eventName);
+    bool queueEvent(const String &eventName);
 }

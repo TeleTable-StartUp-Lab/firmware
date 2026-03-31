@@ -5,10 +5,20 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
+#include <cstring>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
 #include <ping/ping_sock.h>
 
 namespace
 {
+    constexpr uint8_t REQUEST_QUEUE_LENGTH = 8;
+    constexpr uint32_t WORKER_IDLE_MS = 25;
+    constexpr size_t EVENT_NAME_CAP = 64;
+    constexpr size_t TEXT_FIELD_CAP = 64;
+    constexpr size_t SHORT_TEXT_FIELD_CAP = 24;
+
     struct PingContext
     {
         volatile bool finished;
@@ -16,6 +26,48 @@ namespace
         volatile uint32_t maxTimeMs;
         volatile uint32_t sumTimeMs;
     };
+
+    enum class RequestType : uint8_t
+    {
+        Register,
+        Event,
+    };
+
+    struct BackendRequest
+    {
+        RequestType type;
+        uint16_t robotPort;
+        char eventName[EVENT_NAME_CAP];
+    };
+
+    struct StatePayload
+    {
+        int batteryLevel;
+        char systemHealth[SHORT_TEXT_FIELD_CAP];
+        char driveMode[SHORT_TEXT_FIELD_CAP];
+        char cargoStatus[SHORT_TEXT_FIELD_CAP];
+        char currentPosition[TEXT_FIELD_CAP];
+        char lastNode[TEXT_FIELD_CAP];
+        char targetNode[TEXT_FIELD_CAP];
+    };
+
+    QueueHandle_t g_requestQueue = nullptr;
+    TaskHandle_t g_workerTask = nullptr;
+    portMUX_TYPE g_stateMux = portMUX_INITIALIZER_UNLOCKED;
+    StatePayload g_statePayload{};
+    uint32_t g_stateSequence = 0;
+    bool g_statePending = false;
+
+    void copyStringField(char *dest, size_t destSize, const String &value)
+    {
+        if (!dest || destSize == 0)
+            return;
+
+        const size_t n = value.length();
+        const size_t copyLen = (n < (destSize - 1)) ? n : (destSize - 1);
+        memcpy(dest, value.c_str(), copyLen);
+        dest[copyLen] = '\0';
+    }
 
     void onPingSuccess(esp_ping_handle_t hdl, void *args)
     {
@@ -69,7 +121,7 @@ namespace
                BackendConfig::HOST + ":" + String(BackendConfig::PORT) + String(path);
     }
 
-    bool postJson(const char *path, const String &jsonBody)
+    bool postJsonBlocking(const char *path, const String &jsonBody)
     {
         if (WiFi.status() != WL_CONNECTED)
         {
@@ -118,10 +170,124 @@ namespace
         Serial.printf("[backend] POST %s code=%d resp=%s\n", path, code, resp.c_str());
         return code >= 200 && code < 300;
     }
+
+    bool registerRobotBlocking(uint16_t robotPort)
+    {
+        JsonDocument doc;
+        doc["port"] = robotPort;
+        String payload;
+        serializeJson(doc, payload);
+        return postJsonBlocking("/table/register", payload);
+    }
+
+    bool postStateBlocking(const String &systemHealth,
+                           int batteryLevel,
+                           const String &driveMode,
+                           const String &cargoStatus,
+                           const String &currentPosition,
+                           const String &lastNode,
+                           const String &targetNode)
+    {
+        JsonDocument doc;
+        doc["systemHealth"] = systemHealth;
+        doc["batteryLevel"] = batteryLevel;
+        doc["driveMode"] = driveMode;
+        doc["cargoStatus"] = cargoStatus;
+        doc["currentPosition"] = currentPosition;
+        doc["lastNode"] = lastNode;
+        doc["targetNode"] = targetNode;
+
+        String payload;
+        serializeJson(doc, payload);
+        return postJsonBlocking("/table/state", payload);
+    }
+
+    bool postEventBlocking(const String &eventName)
+    {
+        JsonDocument doc;
+        doc["event"] = eventName;
+        doc["timestamp"] = (uint32_t)millis();
+
+        String payload;
+        serializeJson(doc, payload);
+        return postJsonBlocking("/table/event", payload);
+    }
+
+    bool tryTakePendingState(StatePayload &out, uint32_t &sequence)
+    {
+        bool hasState = false;
+
+        portENTER_CRITICAL(&g_stateMux);
+        if (g_statePending)
+        {
+            out = g_statePayload;
+            sequence = g_stateSequence;
+            hasState = true;
+        }
+        portEXIT_CRITICAL(&g_stateMux);
+
+        return hasState;
+    }
+
+    void finishPendingState(uint32_t sequence, bool success)
+    {
+        portENTER_CRITICAL(&g_stateMux);
+        if (success && g_statePending && g_stateSequence == sequence)
+            g_statePending = false;
+        portEXIT_CRITICAL(&g_stateMux);
+    }
+
+    void backendWorkerTask(void *)
+    {
+        for (;;)
+        {
+            BackendRequest request{};
+            if (g_requestQueue && xQueueReceive(g_requestQueue, &request, pdMS_TO_TICKS(WORKER_IDLE_MS)) == pdTRUE)
+            {
+                switch (request.type)
+                {
+                case RequestType::Register:
+                    registerRobotBlocking(request.robotPort);
+                    break;
+
+                case RequestType::Event:
+                    postEventBlocking(String(request.eventName));
+                    break;
+                }
+                continue;
+            }
+
+            StatePayload state{};
+            uint32_t sequence = 0;
+            if (tryTakePendingState(state, sequence))
+            {
+                const bool ok = postStateBlocking(String(state.systemHealth),
+                                                  state.batteryLevel,
+                                                  String(state.driveMode),
+                                                  String(state.cargoStatus),
+                                                  String(state.currentPosition),
+                                                  String(state.lastNode),
+                                                  String(state.targetNode));
+                finishPendingState(sequence, ok);
+                continue;
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(WORKER_IDLE_MS));
+        }
+    }
 }
 
 namespace BackendClient
 {
+    void begin()
+    {
+        if (!g_requestQueue)
+            g_requestQueue = xQueueCreate(REQUEST_QUEUE_LENGTH, sizeof(BackendRequest));
+
+        if (!g_workerTask && g_requestQueue)
+            xTaskCreatePinnedToCore(backendWorkerTask, "backend-http", 6144, nullptr, 1, &g_workerTask, tskNO_AFFINITY);
+    }
+
     PingResult ping()
     {
         PingResult result;
@@ -200,11 +366,19 @@ namespace BackendClient
 
     bool registerRobot(uint16_t robotPort)
     {
-        JsonDocument doc;
-        doc["port"] = robotPort;
-        String payload;
-        serializeJson(doc, payload);
-        return postJson("/table/register", payload);
+        return registerRobotBlocking(robotPort);
+    }
+
+    bool queueRegisterRobot(uint16_t robotPort)
+    {
+        begin();
+        if (!g_requestQueue)
+            return false;
+
+        BackendRequest request{};
+        request.type = RequestType::Register;
+        request.robotPort = robotPort;
+        return xQueueSendToBack(g_requestQueue, &request, 0) == pdTRUE;
     }
 
     bool postState(const String &systemHealth,
@@ -215,28 +389,57 @@ namespace BackendClient
                    const String &lastNode,
                    const String &targetNode)
     {
-        JsonDocument doc;
-        doc["systemHealth"] = systemHealth;
-        doc["batteryLevel"] = batteryLevel;
-        doc["driveMode"] = driveMode;
-        doc["cargoStatus"] = cargoStatus;
-        doc["currentPosition"] = currentPosition;
-        doc["lastNode"] = lastNode;
-        doc["targetNode"] = targetNode;
+        return postStateBlocking(systemHealth,
+                                 batteryLevel,
+                                 driveMode,
+                                 cargoStatus,
+                                 currentPosition,
+                                 lastNode,
+                                 targetNode);
+    }
 
-        String payload;
-        serializeJson(doc, payload);
-        return postJson("/table/state", payload);
+    bool queueState(const String &systemHealth,
+                    int batteryLevel,
+                    const String &driveMode,
+                    const String &cargoStatus,
+                    const String &currentPosition,
+                    const String &lastNode,
+                    const String &targetNode)
+    {
+        begin();
+
+        StatePayload nextState{};
+        nextState.batteryLevel = batteryLevel;
+        copyStringField(nextState.systemHealth, sizeof(nextState.systemHealth), systemHealth);
+        copyStringField(nextState.driveMode, sizeof(nextState.driveMode), driveMode);
+        copyStringField(nextState.cargoStatus, sizeof(nextState.cargoStatus), cargoStatus);
+        copyStringField(nextState.currentPosition, sizeof(nextState.currentPosition), currentPosition);
+        copyStringField(nextState.lastNode, sizeof(nextState.lastNode), lastNode);
+        copyStringField(nextState.targetNode, sizeof(nextState.targetNode), targetNode);
+
+        portENTER_CRITICAL(&g_stateMux);
+        g_statePayload = nextState;
+        ++g_stateSequence;
+        g_statePending = true;
+        portEXIT_CRITICAL(&g_stateMux);
+
+        return true;
     }
 
     bool postEvent(const String &eventName)
     {
-        JsonDocument doc;
-        doc["event"] = eventName;
-        doc["timestamp"] = (uint32_t)millis();
+        return postEventBlocking(eventName);
+    }
 
-        String payload;
-        serializeJson(doc, payload);
-        return postJson("/table/event", payload);
+    bool queueEvent(const String &eventName)
+    {
+        begin();
+        if (!g_requestQueue)
+            return false;
+
+        BackendRequest request{};
+        request.type = RequestType::Event;
+        copyStringField(request.eventName, sizeof(request.eventName), eventName);
+        return xQueueSendToBack(g_requestQueue, &request, 0) == pdTRUE;
     }
 }

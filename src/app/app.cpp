@@ -78,6 +78,7 @@ namespace App
     {
         Serial.begin(AppConfig::SERIAL_BAUD);
         delay(50);
+        BackendClient::begin();
 
         const uint32_t bootMs = millis();
         drive.begin(bootMs);
@@ -122,14 +123,13 @@ namespace App
         const bool wok = WifiManager::begin(Secrets::WIFI_SSID, Secrets::WIFI_PASS, 15000);
         Serial.printf("[wifi] %s ip=%s\n", wok ? "connected" : "failed", WifiManager::ip().c_str());
 
+        backend.begin();
+
         if (wok)
         {
-            const bool regOk = BackendClient::registerRobot(BackendConfig::ROBOT_PORT);
-            Serial.printf("[backend] register %s\n", regOk ? "ok" : "fail");
+            backend.registerTask(millis());
             backend.pushState();
         }
-
-        backend.begin();
 
         Serial.println("[boot] motors + IR(front) + BH1750 + MPU-6050 + RC522 + WS2812B + I2S audio + OLED + backend ws/http");
         Serial.println("[boot] obstacle policy: blocks FORWARD, reverse allowed");
