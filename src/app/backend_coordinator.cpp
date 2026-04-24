@@ -83,15 +83,13 @@ void BackendCoordinator::begin()
             pushState();
         });
 
-    WsControlClient::begin(
+        WsControlClient::begin(
         WsControlClient::Handlers{
             .onConnected = [this]()
             {
-                Serial.println("[ws] connected");
                 pushState();
             },
-            .onDisconnected = []()
-            { Serial.println("[ws] disconnected"); },
+            .onDisconnected = []() {},
             .onNavigate = [this](const String &startNode, const String &destNode)
             {
                 state.setRoute(startNode, destNode);
@@ -120,6 +118,39 @@ void BackendCoordinator::begin()
                 drive.setTargets(linear, angular, false);
 
                 pushState();
+            },
+            .onLed = [this](bool enabled, uint8_t r, uint8_t g, uint8_t b, uint8_t brightness)
+            {
+                const uint8_t scaledBrightness = static_cast<uint8_t>((static_cast<uint16_t>(brightness) * 255U) / 100U);
+
+                leds.setAutoEnabled(false);
+                leds.setColor(r, g, b);
+                leds.setBrightness(scaledBrightness);
+                leds.setEnabled(enabled);
+                leds.apply();
+
+                Serial.printf("[ws] LED enabled=%d rgb=(%u,%u,%u) brightness=%u\n",
+                              enabled ? 1 : 0,
+                              static_cast<unsigned>(r),
+                              static_cast<unsigned>(g),
+                              static_cast<unsigned>(b),
+                              static_cast<unsigned>(scaledBrightness));
+            },
+            .onAudioBeep = [this](uint32_t hz, uint32_t ms)
+            {
+                hz = static_cast<uint32_t>(clampf(static_cast<float>(hz), 20.0f, 20000.0f));
+                ms = static_cast<uint32_t>(clampf(static_cast<float>(ms), 10.0f, 5000.0f));
+
+                audio.playBeep(static_cast<uint16_t>(hz), static_cast<uint16_t>(ms));
+                Serial.printf("[ws] AUDIO_BEEP hz=%lu ms=%lu\n",
+                              static_cast<unsigned long>(hz),
+                              static_cast<unsigned long>(ms));
+            },
+            .onAudioVolume = [this](float value)
+            {
+                value = clampf(value, 0.0f, 1.0f);
+                audio.setVolume(value);
+                Serial.printf("[ws] AUDIO_VOLUME value=%.2f\n", static_cast<double>(value));
             },
             .onStop = [this]()
             {

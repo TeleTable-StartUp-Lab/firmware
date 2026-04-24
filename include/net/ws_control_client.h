@@ -13,6 +13,9 @@ namespace WsControlClient
 
         std::function<void(const String &startNode, const String &destinationNode)> onNavigate;
         std::function<void(float linearVelocity, float angularVelocity)> onDriveCommand;
+        std::function<void(bool enabled, uint8_t r, uint8_t g, uint8_t b, uint8_t brightness)> onLed;
+        std::function<void(uint32_t hz, uint32_t ms)> onAudioBeep;
+        std::function<void(float value)> onAudioVolume;
 
         std::function<void()> onStop;
         std::function<void(const String &mode)> onSetMode;

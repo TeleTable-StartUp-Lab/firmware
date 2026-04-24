@@ -66,6 +66,37 @@ namespace
                 g_handlers.onDriveCommand(linear, angular);
             return;
         }
+        if (strcmp(cmd, "LED") == 0)
+        {
+            const bool enabled = doc["enabled"] | false;
+            const uint8_t r = static_cast<uint8_t>(doc["r"] | 0);
+            const uint8_t g = static_cast<uint8_t>(doc["g"] | 0);
+            const uint8_t b = static_cast<uint8_t>(doc["b"] | 0);
+            const uint8_t brightness = static_cast<uint8_t>(doc["brightness"] | 0);
+
+            if (g_handlers.onLed)
+                g_handlers.onLed(enabled, r, g, b, brightness);
+            return;
+        }
+
+        if (strcmp(cmd, "AUDIO_BEEP") == 0)
+        {
+            const uint32_t hz = doc["hz"] | 0;
+            const uint32_t ms = doc["ms"] | 0;
+
+            if (g_handlers.onAudioBeep)
+                g_handlers.onAudioBeep(hz, ms);
+            return;
+        }
+
+        if (strcmp(cmd, "AUDIO_VOLUME") == 0)
+        {
+            const float value = doc["value"] | 0.0f;
+
+            if (g_handlers.onAudioVolume)
+                g_handlers.onAudioVolume(value);
+            return;
+        }
 
         if (strcmp(cmd, "STOP") == 0)
         {
