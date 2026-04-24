@@ -75,4 +75,5 @@ private:
 
     bool obstacleFront;
     uint32_t obstacleHoldUntilMs;
+    bool manualTimeoutActive;
 };

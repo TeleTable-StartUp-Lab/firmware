@@ -108,7 +108,17 @@ void BackendCoordinator::begin()
             {
                 pushState();
             },
-            .onDisconnected = []() {},
+            .onDisconnected = [this]()
+            {
+                if (state.driveMode() != RobotHttpServer::DriveMode::MANUAL)
+                    return;
+
+                navigation.cancel("IDLE");
+                state.setDriveMode(RobotHttpServer::DriveMode::MANUAL);
+                drive.setTargets(0.0f, 0.0f, true);
+                Serial.println("[ws] disconnected during manual control -> stop");
+                pushState();
+            },
             .onNavigate = [this](const String &startNode, const String &destNode)
             {
                 String error;
