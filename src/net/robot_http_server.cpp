@@ -124,20 +124,6 @@ namespace RobotHttpServer
         sendJson(200, doc);
     }
 
-    static void handleNodes()
-    {
-        if (!g_server)
-            return;
-
-        JsonDocument doc;
-        JsonArray nodes = doc["nodes"].to<JsonArray>();
-        nodes.add("Mensa");
-        nodes.add("Raum #1");
-        nodes.add("Raum #3");
-
-        sendJson(200, doc);
-    }
-
     static void handleMode()
     {
         if (!g_server)
@@ -253,7 +239,6 @@ namespace RobotHttpServer
         g_server = new WebServer(port);
 
         g_server->on("/status", HTTP_GET, handleStatus);
-        g_server->on("/nodes", HTTP_GET, handleNodes);
         g_server->on("/mode", HTTP_POST, handleMode);
         g_server->on("/select", HTTP_POST, handleSelect);
         g_server->on("/health", HTTP_GET, handleHealth);
