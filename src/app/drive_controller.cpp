@@ -47,8 +47,7 @@ DriveController::DriveController(SensorSuite &sensorsRef)
       lastAppliedRight(0.0f),
       lastDriveDebugMs(0),
       obstacleFront(false),
-      obstacleHoldUntilMs(0),
-      manualTimeoutActive(false)
+      obstacleHoldUntilMs(0)
 {
 }
 
@@ -60,7 +59,6 @@ void DriveController::begin(uint32_t bootMs)
     lastDriveDebugMs = bootMs;
     obstacleFront = false;
     obstacleHoldUntilMs = 0;
-    manualTimeoutActive = false;
 
     leftMotor.begin();
     rightMotor.begin();
@@ -71,7 +69,6 @@ void DriveController::setTargets(float throttle, float steer, bool immediate)
     targetThrottle = clampf(throttle, -1.0f, 1.0f);
     targetSteer = clampf(steer, -1.0f, 1.0f);
     lastDriveCmdMs = millis();
-    manualTimeoutActive = false;
 
     if (immediate)
     {
@@ -119,27 +116,6 @@ void DriveController::update(uint32_t nowMs, RobotHttpServer::DriveMode mode)
 
     float maxThrottleStep = cfg.throttle_slew_rate * dt;
     float maxSteerStep = cfg.steer_slew_rate * dt;
-
-    const bool manualTimedOut =
-        mode == RobotHttpServer::DriveMode::MANUAL &&
-        (nowMs - lastDriveCmdMs) >= cfg.manual_cmd_timeout_ms;
-    if (manualTimedOut)
-    {
-        targetThrottle = 0.0f;
-        targetSteer = 0.0f;
-        maxThrottleStep = cfg.timeout_brake_slew_rate * dt;
-        maxSteerStep = cfg.timeout_brake_slew_rate * dt;
-
-        if (!manualTimeoutActive)
-        {
-            manualTimeoutActive = true;
-            Serial.println("[drive] manual command timeout -> braking to stop");
-        }
-    }
-    else
-    {
-        manualTimeoutActive = false;
-    }
 
     smoothedThrottle = slewTowards(smoothedThrottle, targetThrottle, maxThrottleStep);
     smoothedSteer = slewTowards(smoothedSteer, targetSteer, maxSteerStep);
