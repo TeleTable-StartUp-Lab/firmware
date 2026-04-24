@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include "app/drive_controller.h"
+#include "app/navigation_controller.h"
 #include "app/led_controller.h"
 #include "app/robot_state.h"
 #include "app/sensor_suite.h"
@@ -11,7 +12,7 @@
 class BackendCoordinator
 {
 public:
-    BackendCoordinator(RobotState &state, DriveController &drive, SensorSuite &sensors, LedController &leds, I2sAudio &audio);
+    BackendCoordinator(RobotState &state, DriveController &drive, SensorSuite &sensors, NavigationController &navigation, LedController &leds, I2sAudio &audio);
 
     void begin();
     void handle();
@@ -25,6 +26,7 @@ private:
     RobotState &state;
     DriveController &drive;
     SensorSuite &sensors;
+    NavigationController &navigation;
     LedController &leds;
     I2sAudio &audio;
 

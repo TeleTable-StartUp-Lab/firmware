@@ -22,6 +22,9 @@ namespace RobotHttpServer
         const char *lastRouteStart; // nullable
         const char *lastRouteEnd;   // nullable
         const char *position;       // nullable
+        const char *currentNode;    // nullable
+        const char *targetNode;     // nullable
+        const char *navigationStatus;
 
         bool irLeft;
         bool irMid;
@@ -50,7 +53,7 @@ namespace RobotHttpServer
 
     using StatusProvider = std::function<StatusSnapshot()>;
     using ModeSetter = std::function<void(DriveMode)>;
-    using RouteSetter = std::function<void(const String &startNode, const String &endNode)>;
+    using RouteSetter = std::function<bool(const String &startNode, const String &endNode, String &error)>;
 
     void begin(uint16_t port, StatusProvider statusProvider, ModeSetter modeSetter, RouteSetter routeSetter);
     void handle();

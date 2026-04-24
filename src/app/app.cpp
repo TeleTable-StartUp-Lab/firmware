@@ -4,6 +4,7 @@
 #include "app/console_commander.h"
 #include "app/drive_controller.h"
 #include "app/led_controller.h"
+#include "app/navigation_controller.h"
 #include "app/oled_ui.h"
 #include "app/robot_state.h"
 #include "app/sensor_suite.h"
@@ -34,9 +35,10 @@ namespace
                     .sample_rate_hz = 22050});
 
     RobotState state;
+    NavigationController navigation(state, drive, sensors);
     OledUi oled(state, sensors);
     ConsoleCommander console(drive, sensors, leds, audio);
-    BackendCoordinator backend(state, drive, sensors, leds, audio);
+    BackendCoordinator backend(state, drive, sensors, navigation, leds, audio);
 
     void statusPrintTask(uint32_t nowMs)
     {
@@ -122,6 +124,8 @@ namespace App
 
         leds.begin();
 
+        navigation.begin();
+
         const bool aok = audio.begin();
         Serial.printf("[audio] init %s\n", aok ? "ok" : "fail");
         audio.setVolume(0.20f);
@@ -151,6 +155,7 @@ namespace App
         statusPrintTask(nowMs);
 
         sensors.update(nowMs);
+        navigation.update(nowMs);
         oled.update(nowMs);
         leds.autoTask();
 

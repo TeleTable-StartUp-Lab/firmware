@@ -87,6 +87,9 @@ namespace RobotHttpServer
         lastRoute["endNode"] = s.lastRouteEnd ? s.lastRouteEnd : "";
 
         doc["position"] = s.position ? s.position : "";
+        doc["currentNode"] = s.currentNode ? s.currentNode : "";
+        doc["targetNode"] = s.targetNode ? s.targetNode : "";
+        doc["navigationStatus"] = s.navigationStatus ? s.navigationStatus : "IDLE";
 
         JsonObject sensors = doc["sensors"].to<JsonObject>();
 
@@ -206,8 +209,15 @@ namespace RobotHttpServer
             return;
         }
 
-        if (g_routeSetter)
-            g_routeSetter(startNode, endNode);
+        String error;
+        if (g_routeSetter && !g_routeSetter(startNode, endNode, error))
+        {
+            JsonDocument doc;
+            doc["ok"] = false;
+            doc["error"] = error.length() ? error : String("route rejected");
+            sendJson(400, doc);
+            return;
+        }
 
         JsonDocument doc;
         doc["ok"] = true;

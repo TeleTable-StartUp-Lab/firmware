@@ -15,9 +15,15 @@ public:
     const String &lastRouteStart() const;
     const String &lastRouteEnd() const;
     const String &position() const;
+    const String &currentNode() const;
+    const String &targetNode() const;
+    const String &navigationStatus() const;
 
     void setRoute(const String &startNode, const String &endNode);
     void setPosition(const String &pos);
+    void setCurrentNode(const String &nodeUuid);
+    void setTargetNode(const String &nodeUuid);
+    void setNavigationStatus(const String &status);
 
     void ensureHomeIfEmpty();
 
@@ -28,4 +34,7 @@ private:
     String lastRouteStartValue;
     String lastRouteEndValue;
     String positionValue;
+    String currentNodeValue;
+    String targetNodeValue;
+    String navigationStatusValue;
 };

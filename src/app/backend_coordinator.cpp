@@ -10,10 +10,11 @@
 
 #include <cmath>
 
-BackendCoordinator::BackendCoordinator(RobotState &stateRef, DriveController &driveRef, SensorSuite &sensorsRef, LedController &ledsRef, I2sAudio &audioRef)
+BackendCoordinator::BackendCoordinator(RobotState &stateRef, DriveController &driveRef, SensorSuite &sensorsRef, NavigationController &navigationRef, LedController &ledsRef, I2sAudio &audioRef)
     : state(stateRef),
       drive(driveRef),
       sensors(sensorsRef),
+      navigation(navigationRef),
       leds(ledsRef),
       audio(audioRef),
       lastBackendRegisterMs(0),
@@ -28,6 +29,9 @@ BackendCoordinator::BackendCoordinator(RobotState &stateRef, DriveController &dr
 
 void BackendCoordinator::begin()
 {
+    navigation.setStateChangedCallback([this]()
+                                       { pushState(); });
+
     RobotHttpServer::begin(
         BackendConfig::ROBOT_PORT,
         [this]() -> RobotHttpServer::StatusSnapshot
@@ -41,6 +45,9 @@ void BackendCoordinator::begin()
             s.lastRouteStart = state.lastRouteStart().length() ? state.lastRouteStart().c_str() : nullptr;
             s.lastRouteEnd = state.lastRouteEnd().length() ? state.lastRouteEnd().c_str() : nullptr;
             s.position = state.position().length() ? state.position().c_str() : nullptr;
+            s.currentNode = state.currentNode().length() ? state.currentNode().c_str() : nullptr;
+            s.targetNode = state.targetNode().length() ? state.targetNode().c_str() : nullptr;
+            s.navigationStatus = state.navigationStatus().length() ? state.navigationStatus().c_str() : "IDLE";
 
             s.irLeft = sensors.isIrLeftObstacle();
             s.irMid = sensors.isIrMidObstacle();
@@ -69,11 +76,15 @@ void BackendCoordinator::begin()
         },
         [this](RobotHttpServer::DriveMode m)
         {
+            if (m == RobotHttpServer::DriveMode::MANUAL)
+                navigation.cancel("IDLE");
+            else if (m == RobotHttpServer::DriveMode::IDLE)
+                navigation.cancel("IDLE");
+
             state.setDriveMode(m);
 
             if (m == RobotHttpServer::DriveMode::IDLE)
             {
-                drive.setTargets(0.0f, 0.0f, true);
                 state.ensureHomeIfEmpty();
             }
 
@@ -83,14 +94,15 @@ void BackendCoordinator::begin()
 
             pushState();
         },
-        [this](const String &startNode, const String &endNode)
+        [this](const String &startNode, const String &endNode, String &error) -> bool
         {
-            state.setRoute(startNode, endNode);
-            Serial.printf("[route] selected %s -> %s\n", startNode.c_str(), endNode.c_str());
-            pushState();
+            const bool accepted = navigation.requestNavigation(startNode, endNode, &error);
+            if (accepted)
+                Serial.printf("[route] selected %s -> %s\n", startNode.c_str(), endNode.c_str());
+            return accepted;
         });
 
-        WsControlClient::begin(
+    WsControlClient::begin(
         WsControlClient::Handlers{
             .onConnected = [this]()
             {
@@ -99,10 +111,15 @@ void BackendCoordinator::begin()
             .onDisconnected = []() {},
             .onNavigate = [this](const String &startNode, const String &destNode)
             {
-                state.setRoute(startNode, destNode);
-
-                state.setDriveMode(RobotHttpServer::DriveMode::AUTO);
-                state.setPosition("MOVING");
+                String error;
+                if (!navigation.requestNavigation(startNode, destNode, &error))
+                {
+                    Serial.printf("[ws] NAVIGATE rejected %s -> %s (%s)\n",
+                                  startNode.c_str(),
+                                  destNode.c_str(),
+                                  error.c_str());
+                    return;
+                }
 
                 Serial.printf("[ws] NAVIGATE %s -> %s\n", startNode.c_str(), destNode.c_str());
                 pendingEvent = "START_BUTTON_PRESSED";
@@ -111,8 +128,8 @@ void BackendCoordinator::begin()
             },
             .onDriveCommand = [this](float linear, float angular)
             {
+                navigation.cancel("IDLE");
                 state.setDriveMode(RobotHttpServer::DriveMode::MANUAL);
-                state.setPosition("MOVING");
 
                 if (!std::isfinite(linear))
                     linear = 0.0f;
@@ -161,10 +178,8 @@ void BackendCoordinator::begin()
             },
             .onStop = [this]()
             {
-                drive.setTargets(0.0f, 0.0f, true);
+                navigation.cancel("IDLE");
                 state.setDriveMode(RobotHttpServer::DriveMode::IDLE);
-                if (state.position() == "MOVING")
-                    state.setPosition("Home");
 
                 Serial.println("[ws] STOP");
                 pushState();
@@ -173,11 +188,12 @@ void BackendCoordinator::begin()
             {
                 if (mode == "IDLE")
                 {
+                    navigation.cancel("IDLE");
                     state.setDriveMode(RobotHttpServer::DriveMode::IDLE);
-                    drive.setTargets(0.0f, 0.0f, true);
                 }
                 else if (mode == "MANUAL")
                 {
+                    navigation.cancel("IDLE");
                     state.setDriveMode(RobotHttpServer::DriveMode::MANUAL);
                 }
                 else if (mode == "AUTO")
@@ -238,8 +254,8 @@ void BackendCoordinator::stateTask(uint32_t nowMs)
             state.driveModeToBackend(),
             "EMPTY",
             state.position().length() ? state.position() : String(""),
-            state.lastRouteStart().length() ? state.lastRouteStart() : String(""),
-            state.lastRouteEnd().length() ? state.lastRouteEnd() : String(""),
+            state.currentNode().length() ? state.currentNode() : String(""),
+            state.targetNode().length() ? state.targetNode() : String(""),
             sensors.hasImu(),
             sensors.hasImu() ? sensors.imu().gyro_x_dps : 0.0f,
             sensors.hasImu() ? sensors.imu().gyro_y_dps : 0.0f,
