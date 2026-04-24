@@ -35,6 +35,13 @@ namespace RobotHttpServer
         float batteryPowerW;
         bool powerValid;
 
+        float gyroXDps;
+        float gyroYDps;
+        float gyroZDps;
+        bool gyroValid;
+
+        const char *lastReadUuid; // nullable
+
         bool ledEnabled;
         bool ledAutoEnabled;
 

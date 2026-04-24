@@ -18,6 +18,7 @@ namespace
     constexpr size_t EVENT_NAME_CAP = 64;
     constexpr size_t TEXT_FIELD_CAP = 64;
     constexpr size_t SHORT_TEXT_FIELD_CAP = 24;
+    constexpr size_t RFID_UID_CAP = 48;
 
     struct PingContext
     {
@@ -49,6 +50,22 @@ namespace
         char currentPosition[TEXT_FIELD_CAP];
         char lastNode[TEXT_FIELD_CAP];
         char targetNode[TEXT_FIELD_CAP];
+        bool hasGyroscope;
+        float gyroXDps;
+        float gyroYDps;
+        float gyroZDps;
+        bool hasRfid;
+        char lastReadUuid[RFID_UID_CAP];
+        bool hasLux;
+        float lux;
+        bool hasInfrared;
+        bool infraredFront;
+        bool infraredLeft;
+        bool infraredRight;
+        bool hasPower;
+        float voltageV;
+        float currentA;
+        float powerW;
     };
 
     QueueHandle_t g_requestQueue = nullptr;
@@ -186,7 +203,23 @@ namespace
                            const String &cargoStatus,
                            const String &currentPosition,
                            const String &lastNode,
-                           const String &targetNode)
+                           const String &targetNode,
+                           bool hasGyroscope,
+                           float gyroXDps,
+                           float gyroYDps,
+                           float gyroZDps,
+                           bool hasRfid,
+                           const String &lastReadUuid,
+                           bool hasLux,
+                           float lux,
+                           bool hasInfrared,
+                           bool infraredFront,
+                           bool infraredLeft,
+                           bool infraredRight,
+                           bool hasPower,
+                           float voltageV,
+                           float currentA,
+                           float powerW)
     {
         JsonDocument doc;
         doc["systemHealth"] = systemHealth;
@@ -196,6 +229,35 @@ namespace
         doc["currentPosition"] = currentPosition;
         doc["lastNode"] = lastNode;
         doc["targetNode"] = targetNode;
+
+        if (hasGyroscope)
+        {
+            JsonObject gyroscope = doc["gyroscope"].to<JsonObject>();
+            gyroscope["xDps"] = gyroXDps;
+            gyroscope["yDps"] = gyroYDps;
+            gyroscope["zDps"] = gyroZDps;
+        }
+
+        if (hasRfid)
+            doc["lastReadUuid"] = lastReadUuid;
+
+        if (hasLux)
+            doc["lux"] = lux;
+
+        if (hasInfrared)
+        {
+            JsonObject infrared = doc["infrared"].to<JsonObject>();
+            infrared["front"] = infraredFront;
+            infrared["left"] = infraredLeft;
+            infrared["right"] = infraredRight;
+        }
+
+        if (hasPower)
+        {
+            doc["voltageV"] = voltageV;
+            doc["currentA"] = currentA;
+            doc["powerW"] = powerW;
+        }
 
         String payload;
         serializeJson(doc, payload);
@@ -267,7 +329,23 @@ namespace
                                                   String(state.cargoStatus),
                                                   String(state.currentPosition),
                                                   String(state.lastNode),
-                                                  String(state.targetNode));
+                                                  String(state.targetNode),
+                                                  state.hasGyroscope,
+                                                  state.gyroXDps,
+                                                  state.gyroYDps,
+                                                  state.gyroZDps,
+                                                  state.hasRfid,
+                                                  String(state.lastReadUuid),
+                                                  state.hasLux,
+                                                  state.lux,
+                                                  state.hasInfrared,
+                                                  state.infraredFront,
+                                                  state.infraredLeft,
+                                                  state.infraredRight,
+                                                  state.hasPower,
+                                                  state.voltageV,
+                                                  state.currentA,
+                                                  state.powerW);
                 finishPendingState(sequence, ok);
                 continue;
             }
@@ -387,7 +465,23 @@ namespace BackendClient
                    const String &cargoStatus,
                    const String &currentPosition,
                    const String &lastNode,
-                   const String &targetNode)
+                   const String &targetNode,
+                   bool hasGyroscope,
+                   float gyroXDps,
+                   float gyroYDps,
+                   float gyroZDps,
+                   bool hasRfid,
+                   const String &lastReadUuid,
+                   bool hasLux,
+                   float lux,
+                   bool hasInfrared,
+                   bool infraredFront,
+                   bool infraredLeft,
+                   bool infraredRight,
+                   bool hasPower,
+                   float voltageV,
+                   float currentA,
+                   float powerW)
     {
         return postStateBlocking(systemHealth,
                                  batteryLevel,
@@ -395,7 +489,23 @@ namespace BackendClient
                                  cargoStatus,
                                  currentPosition,
                                  lastNode,
-                                 targetNode);
+                                 targetNode,
+                                 hasGyroscope,
+                                 gyroXDps,
+                                 gyroYDps,
+                                 gyroZDps,
+                                 hasRfid,
+                                 lastReadUuid,
+                                 hasLux,
+                                 lux,
+                                 hasInfrared,
+                                 infraredFront,
+                                 infraredLeft,
+                                 infraredRight,
+                                 hasPower,
+                                 voltageV,
+                                 currentA,
+                                 powerW);
     }
 
     bool queueState(const String &systemHealth,
@@ -404,7 +514,23 @@ namespace BackendClient
                     const String &cargoStatus,
                     const String &currentPosition,
                     const String &lastNode,
-                    const String &targetNode)
+                    const String &targetNode,
+                    bool hasGyroscope,
+                    float gyroXDps,
+                    float gyroYDps,
+                    float gyroZDps,
+                    bool hasRfid,
+                    const String &lastReadUuid,
+                    bool hasLux,
+                    float lux,
+                    bool hasInfrared,
+                    bool infraredFront,
+                    bool infraredLeft,
+                    bool infraredRight,
+                    bool hasPower,
+                    float voltageV,
+                    float currentA,
+                    float powerW)
     {
         begin();
 
@@ -416,6 +542,22 @@ namespace BackendClient
         copyStringField(nextState.currentPosition, sizeof(nextState.currentPosition), currentPosition);
         copyStringField(nextState.lastNode, sizeof(nextState.lastNode), lastNode);
         copyStringField(nextState.targetNode, sizeof(nextState.targetNode), targetNode);
+        nextState.hasGyroscope = hasGyroscope;
+        nextState.gyroXDps = gyroXDps;
+        nextState.gyroYDps = gyroYDps;
+        nextState.gyroZDps = gyroZDps;
+        nextState.hasRfid = hasRfid;
+        copyStringField(nextState.lastReadUuid, sizeof(nextState.lastReadUuid), lastReadUuid);
+        nextState.hasLux = hasLux;
+        nextState.lux = lux;
+        nextState.hasInfrared = hasInfrared;
+        nextState.infraredFront = infraredFront;
+        nextState.infraredLeft = infraredLeft;
+        nextState.infraredRight = infraredRight;
+        nextState.hasPower = hasPower;
+        nextState.voltageV = voltageV;
+        nextState.currentA = currentA;
+        nextState.powerW = powerW;
 
         portENTER_CRITICAL(&g_stateMux);
         g_statePayload = nextState;

@@ -105,6 +105,15 @@ namespace RobotHttpServer
         power["currentA"] = s.powerValid ? s.batteryCurrentA : 0.0f;
         power["powerW"] = s.powerValid ? s.batteryPowerW : 0.0f;
 
+        JsonObject gyroscope = sensors["gyroscope"].to<JsonObject>();
+        gyroscope["valid"] = s.gyroValid;
+        gyroscope["xDps"] = s.gyroValid ? s.gyroXDps : 0.0f;
+        gyroscope["yDps"] = s.gyroValid ? s.gyroYDps : 0.0f;
+        gyroscope["zDps"] = s.gyroValid ? s.gyroZDps : 0.0f;
+
+        JsonObject rfid = sensors["rfid"].to<JsonObject>();
+        rfid["lastReadUuid"] = s.lastReadUuid ? s.lastReadUuid : nullptr;
+
         JsonObject led = doc["led"].to<JsonObject>();
         led["enabled"] = s.ledEnabled;
         led["autoEnabled"] = s.ledAutoEnabled;

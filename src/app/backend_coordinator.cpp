@@ -54,6 +54,13 @@ void BackendCoordinator::begin()
             s.batteryCurrentA = s.powerValid ? sensors.batteryCurrentA() : 0.0f;
             s.batteryPowerW = s.powerValid ? sensors.batteryPowerW() : 0.0f;
 
+            s.gyroValid = sensors.hasImu();
+            s.gyroXDps = s.gyroValid ? sensors.imu().gyro_x_dps : 0.0f;
+            s.gyroYDps = s.gyroValid ? sensors.imu().gyro_y_dps : 0.0f;
+            s.gyroZDps = s.gyroValid ? sensors.imu().gyro_z_dps : 0.0f;
+
+            s.lastReadUuid = sensors.hasRfid() ? sensors.rfid().uid_hex.c_str() : nullptr;
+
             s.ledEnabled = leds.isEnabled();
             s.ledAutoEnabled = leds.isAutoEnabled();
 
@@ -232,7 +239,23 @@ void BackendCoordinator::stateTask(uint32_t nowMs)
             "EMPTY",
             state.position().length() ? state.position() : String(""),
             state.lastRouteStart().length() ? state.lastRouteStart() : String(""),
-            state.lastRouteEnd().length() ? state.lastRouteEnd() : String("")))
+            state.lastRouteEnd().length() ? state.lastRouteEnd() : String(""),
+            sensors.hasImu(),
+            sensors.hasImu() ? sensors.imu().gyro_x_dps : 0.0f,
+            sensors.hasImu() ? sensors.imu().gyro_y_dps : 0.0f,
+            sensors.hasImu() ? sensors.imu().gyro_z_dps : 0.0f,
+            sensors.hasRfid(),
+            sensors.hasRfid() ? sensors.rfid().uid_hex : String(""),
+            sensors.hasLux(),
+            sensors.hasLux() ? sensors.lux() : 0.0f,
+            true,
+            sensors.isIrMidObstacle(),
+            sensors.isIrLeftObstacle(),
+            sensors.isIrRightObstacle(),
+            sensors.hasPowerMonitor(),
+            sensors.hasPowerMonitor() ? sensors.batteryVoltage() : 0.0f,
+            sensors.hasPowerMonitor() ? sensors.batteryCurrentA() : 0.0f,
+            sensors.hasPowerMonitor() ? sensors.batteryPowerW() : 0.0f))
     {
         return;
     }
