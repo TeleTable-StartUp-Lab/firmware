@@ -73,9 +73,10 @@ namespace
             const uint8_t g = static_cast<uint8_t>(doc["g"] | 0);
             const uint8_t b = static_cast<uint8_t>(doc["b"] | 0);
             const uint8_t brightness = static_cast<uint8_t>(doc["brightness"] | 0);
+            const String mode = String((const char *)(doc["mode"] | "static"));
 
             if (g_handlers.onLed)
-                g_handlers.onLed(enabled, r, g, b, brightness);
+                g_handlers.onLed(enabled, r, g, b, brightness, mode);
             return;
         }
 

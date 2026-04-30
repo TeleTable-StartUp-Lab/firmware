@@ -143,18 +143,28 @@ void BackendCoordinator::begin()
 
                 pushState();
             },
-            .onLed = [this](bool enabled, uint8_t r, uint8_t g, uint8_t b, uint8_t brightness)
+            .onLed = [this](bool enabled, uint8_t r, uint8_t g, uint8_t b, uint8_t brightness, const String &mode)
             {
                 const uint8_t scaledBrightness = static_cast<uint8_t>((static_cast<uint16_t>(brightness) * 255U) / 100U);
 
+                LedController::LedMode ledMode = LedController::LedMode::Static;
+                if (mode == "breathing")
+                    ledMode = LedController::LedMode::Breathing;
+                else if (mode == "loop")
+                    ledMode = LedController::LedMode::Loop;
+                else if (mode == "rainbow")
+                    ledMode = LedController::LedMode::Rainbow;
+
                 leds.setAutoEnabled(false);
+                leds.setMode(ledMode);
                 leds.setColor(r, g, b);
                 leds.setBrightness(scaledBrightness);
                 leds.setEnabled(enabled);
                 leds.apply();
 
-                Serial.printf("[ws] LED enabled=%d rgb=(%u,%u,%u) brightness=%u\n",
+                Serial.printf("[ws] LED enabled=%d mode=%s rgb=(%u,%u,%u) brightness=%u\n",
                               enabled ? 1 : 0,
+                              mode.c_str(),
                               static_cast<unsigned>(r),
                               static_cast<unsigned>(g),
                               static_cast<unsigned>(b),
