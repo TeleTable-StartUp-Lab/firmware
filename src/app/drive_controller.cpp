@@ -8,32 +8,35 @@
 
 namespace
 {
-float applyExpo(float v, float expo)
-{
-    expo = clampf(expo, 0.0f, 1.0f);
-    return (1.0f - expo) * v + expo * v * v * v;
-}
+    float applyExpo(float v, float expo)
+    {
+        expo = clampf(expo, 0.0f, 1.0f);
+        return (1.0f - expo) * v + expo * v * v * v;
+    }
 
-float applyDeadzoneRescale(float v, float deadband)
-{
-    deadband = clampf(deadband, 0.0f, 0.95f);
-    const float av = std::fabs(v);
-    if (av <= deadband)
-        return 0.0f;
+    float applyDeadzoneRescale(float v, float deadband)
+    {
+        deadband = clampf(deadband, 0.0f, 0.95f);
+        const float av = std::fabs(v);
+        if (av <= deadband)
+            return 0.0f;
 
-    const float scaled = (av - deadband) / (1.0f - deadband);
-    return std::copysign(scaled, v);
-}
+        const float scaled = (av - deadband) / (1.0f - deadband);
+        return std::copysign(scaled, v);
+    }
 } // namespace
 
 DriveController::DriveController(SensorSuite &sensorsRef)
     : sensors(sensorsRef),
-      leftMotor({.in1 = BoardPins::LEFT_MOTOR_IN1,
-                 .in2 = BoardPins::LEFT_MOTOR_IN2,
+      // Swap left/right motor pin mapping so physical left/right are inverted
+      // (this flips steering left/right mapping). If you prefer virtual swap,
+      // change in include/app/drive_controller.h or BoardPins instead.
+      leftMotor({.in1 = BoardPins::RIGHT_MOTOR_IN1,
+                 .in2 = BoardPins::RIGHT_MOTOR_IN2,
                  .pwm_hz = 20000,
                  .pwm_resolution_bits = 10}),
-      rightMotor({.in1 = BoardPins::RIGHT_MOTOR_IN1,
-                  .in2 = BoardPins::RIGHT_MOTOR_IN2,
+      rightMotor({.in1 = BoardPins::LEFT_MOTOR_IN1,
+                  .in2 = BoardPins::LEFT_MOTOR_IN2,
                   .pwm_hz = 20000,
                   .pwm_resolution_bits = 10}),
       targetThrottle(0.0f),

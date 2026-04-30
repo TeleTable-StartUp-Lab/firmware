@@ -34,13 +34,15 @@ void HBridgeMotor::set(float command)
 
     if (command > 0.001f)
     {
-        writeDuty_(ch1_, duty);
-        writeDuty_(ch2_, 0);
+        // Invert direction: drive the opposite channel for positive commands
+        writeDuty_(ch1_, 0);
+        writeDuty_(ch2_, duty);
     }
     else if (command < -0.001f)
     {
-        writeDuty_(ch1_, 0);
-        writeDuty_(ch2_, duty);
+        // Invert direction: drive the opposite channel for negative commands
+        writeDuty_(ch1_, duty);
+        writeDuty_(ch2_, 0);
     }
     else
     {

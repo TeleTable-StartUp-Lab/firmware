@@ -27,20 +27,24 @@ public:
 private:
     struct DriveConfig
     {
-        float throttle_deadband = 0.05f;
+        // Slightly reduced deadband for more responsive throttle
+        float throttle_deadband = 0.03f;
         float steer_deadband = 0.07f;
         float straight_throttle_min = 0.15f;
         float straight_steer_deadband = 0.12f;
         float throttle_expo = 0.45f;
         float steer_expo = 0.75f;
-        float max_throttle = 0.70f;
-        float max_turn_throttle = 0.30f;
+        // Increase max overall throttle for higher top speed
+        float max_throttle = 0.85f;
+        float max_turn_throttle = 0.40f;
         float max_steer = 0.45f;
-        float in_place_throttle_max = 0.08f;
+        // Allow slightly larger throttle while turning in-place and smoother response
+        float in_place_throttle_max = 0.06f;
         float in_place_turn_scale = 0.40f;
         float turn_speed_reduction = 0.90f;
-        float throttle_slew_rate = 2.2f;
-        float steer_slew_rate = 2.2f;
+        // Increase slew rates for quicker, yet smooth speed changes
+        float throttle_slew_rate = 3.5f;
+        float steer_slew_rate = 3.5f;
         float timeout_brake_slew_rate = 9.0f;
         uint32_t manual_cmd_timeout_ms = 350;
         uint32_t motor_apply_min_interval_ms = 15;
