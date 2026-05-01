@@ -2,75 +2,64 @@
 
 #include <cmath>
 
-namespace
-{
-    constexpr uint8_t NAV_GRAPH_NODE_COUNT = 3;
-    constexpr uint8_t NAV_GRAPH_EDGE_COUNT = 4;
+namespace {
+constexpr uint8_t NAV_GRAPH_NODE_COUNT = 3;
+constexpr uint8_t NAV_GRAPH_EDGE_COUNT = 4;
 
-    constexpr char HOME_NODE_ID[] = "home";
-    constexpr char KITCHEN_NODE_ID[] = "kitchen";
-    constexpr char OFFICE_NODE_ID[] = "office";
+constexpr char HOME_NODE_ID[] = "home";
+constexpr char KITCHEN_NODE_ID[] = "kitchen";
+constexpr char OFFICE_NODE_ID[] = "office";
 
-    constexpr char HOME_NODE_LABEL[] = "Home";
-    constexpr char KITCHEN_NODE_LABEL[] = "Kitchen";
-    constexpr char OFFICE_NODE_LABEL[] = "Office";
+constexpr char HOME_NODE_LABEL[] = "Home";
+constexpr char KITCHEN_NODE_LABEL[] = "Kitchen";
+constexpr char OFFICE_NODE_LABEL[] = "Office";
 
-    constexpr char HOME_NODE_RFID[] = "81:C7:97:F5";
-    constexpr char KITCHEN_NODE_RFID[] = "B1:4E:96:F5";
-    constexpr char OFFICE_NODE_RFID[] = "C1:0C:97:F5";
+constexpr char HOME_NODE_RFID[] = "81:C7:97:F5";
+constexpr char KITCHEN_NODE_RFID[] = "B1:4E:96:F5";
+constexpr char OFFICE_NODE_RFID[] = "C1:0C:97:F5";
 
-    constexpr float NAV_DRIVE_THROTTLE = 0.35f;
-    constexpr float NAV_TURN_STEER = 1.0f;
-    constexpr float TARGET_TURN_DEGREES = 90.0f;
-    constexpr uint32_t MAX_TURN_TIME_MS = 8000;
+constexpr float NAV_DRIVE_THROTTLE = 0.35f;
+constexpr float NAV_TURN_STEER = 1.0f;
+constexpr float TARGET_TURN_DEGREES = 90.0f;
+constexpr uint32_t MAX_TURN_TIME_MS = 8000;
 
-    constexpr NavigationController::GraphNode GRAPH_NODES[NAV_GRAPH_NODE_COUNT] = {
-        {HOME_NODE_ID, HOME_NODE_LABEL, HOME_NODE_RFID},
-        {KITCHEN_NODE_ID, KITCHEN_NODE_LABEL, KITCHEN_NODE_RFID},
-        {OFFICE_NODE_ID, OFFICE_NODE_LABEL, OFFICE_NODE_RFID},
-    };
+constexpr NavigationController::GraphNode GRAPH_NODES[NAV_GRAPH_NODE_COUNT] = {
+    {HOME_NODE_ID, HOME_NODE_LABEL, HOME_NODE_RFID},
+    {KITCHEN_NODE_ID, KITCHEN_NODE_LABEL, KITCHEN_NODE_RFID},
+    {OFFICE_NODE_ID, OFFICE_NODE_LABEL, OFFICE_NODE_RFID},
+};
 
-    constexpr NavigationController::GraphEdge GRAPH_EDGES[NAV_GRAPH_EDGE_COUNT] = {
-        {0, 1, NavigationController::NavigationAction::STRAIGHT},
-        {1, 0, NavigationController::NavigationAction::STRAIGHT},
-        {1, 2, NavigationController::NavigationAction::TURN_RIGHT},
-        {2, 1, NavigationController::NavigationAction::TURN_LEFT},
-    };
-}
+constexpr NavigationController::GraphEdge GRAPH_EDGES[NAV_GRAPH_EDGE_COUNT] = {
+    {0, 1, NavigationController::NavigationAction::STRAIGHT},
+    {1, 0, NavigationController::NavigationAction::STRAIGHT},
+    {1, 2, NavigationController::NavigationAction::TURN_RIGHT},
+    {2, 1, NavigationController::NavigationAction::TURN_LEFT},
+};
+} // namespace
 
-NavigationController::NavigationController(RobotState &stateRef, DriveController &driveRef, SensorSuite &sensorsRef)
-    : state(stateRef),
-      drive(driveRef),
-      sensors(sensorsRef),
-      currentNodeIndex(-1),
-      targetNodeIndex(-1),
-      navigationActive(false),
-      motionPhase(MotionPhase::IDLE),
-      plannedStepCount(0),
-      currentStepIndex(0),
-      lastTurnSampleMs(0),
-      turnStartMs(0),
-      accumulatedTurnDegrees(0.0f)
-{
-}
+NavigationController::NavigationController(RobotState &stateRef,
+                                           DriveController &driveRef,
+                                           SensorSuite &sensorsRef,
+                                           I2sAudio &audioRef)
+    : state(stateRef), drive(driveRef), sensors(sensorsRef), audio(audioRef),
+      currentNodeIndex(-1), targetNodeIndex(-1), navigationActive(false),
+      motionPhase(MotionPhase::IDLE), plannedStepCount(0), currentStepIndex(0),
+      lastTurnSampleMs(0), turnStartMs(0), accumulatedTurnDegrees(0.0f) {}
 
-void NavigationController::begin()
-{
+void NavigationController::begin() {
     setLocalizedNode(0);
     state.setTargetNode("");
     state.setNavigationStatus("IDLE");
     state.setPosition(GRAPH_NODES[0].id);
 }
 
-void NavigationController::update(uint32_t nowMs)
-{
+void NavigationController::update(uint32_t nowMs) {
     processRfid(nowMs);
 
     if (!navigationActive)
         return;
 
-    if (sensors.frontObstacleNow())
-    {
+    if (sensors.frontObstacleNow()) {
         Serial.println("[nav] obstacle detected during navigation");
         setError("obstacle detected");
         return;
@@ -79,8 +68,7 @@ void NavigationController::update(uint32_t nowMs)
     if (motionPhase != MotionPhase::TURNING)
         return;
 
-    if (!sensors.hasImu())
-    {
+    if (!sensors.hasImu()) {
         Serial.println("[nav] turn aborted: IMU reading unavailable");
         setError("imu unavailable");
         return;
@@ -92,31 +80,29 @@ void NavigationController::update(uint32_t nowMs)
     const uint32_t deltaMs = nowMs - lastTurnSampleMs;
     lastTurnSampleMs = nowMs;
 
-    accumulatedTurnDegrees += std::fabs(sensors.imu().gyro_z_dps) * (static_cast<float>(deltaMs) * 0.001f);
+    accumulatedTurnDegrees += std::fabs(sensors.imu().gyro_z_dps) *
+                              (static_cast<float>(deltaMs) * 0.001f);
 
-    if (accumulatedTurnDegrees >= TARGET_TURN_DEGREES)
-    {
+    if (accumulatedTurnDegrees >= TARGET_TURN_DEGREES) {
         drive.setTargets(0.0f, 0.0f, true);
         startDriving(nowMs);
         return;
     }
 
-    if ((nowMs - turnStartMs) >= MAX_TURN_TIME_MS)
-    {
+    if ((nowMs - turnStartMs) >= MAX_TURN_TIME_MS) {
         Serial.println("[nav] turn aborted: timeout");
         setError("turn timeout");
     }
 }
 
-bool NavigationController::requestNavigation(const String &startNodeId, const String &targetNodeId, String *errorMessage)
-{
-    auto rejectRequest = [&](const char *message) -> bool
-    {
+bool NavigationController::requestNavigation(const String &startNodeId,
+                                             const String &targetNodeId,
+                                             String *errorMessage) {
+    auto rejectRequest = [&](const char *message) -> bool {
         if (errorMessage)
             *errorMessage = message ? message : "";
 
-        if (!navigationActive)
-        {
+        if (!navigationActive) {
             state.setNavigationStatus("ERROR");
             notifyStateChanged();
         }
@@ -136,7 +122,8 @@ bool NavigationController::requestNavigation(const String &startNodeId, const St
 
     PlannedStep nextSteps[MAX_PATH_STEPS] = {};
     uint8_t nextStepCount = 0;
-    if (!buildPath(requestedStartIndex, requestedTargetIndex, nextSteps, nextStepCount))
+    if (!buildPath(requestedStartIndex, requestedTargetIndex, nextSteps,
+                   nextStepCount))
         return rejectRequest("no path found");
 
     stopMotion();
@@ -160,12 +147,10 @@ bool NavigationController::requestNavigation(const String &startNodeId, const St
     notifyStateChanged();
 
     Serial.printf("[nav] route accepted %s -> %s (%u steps)\n",
-                  startNodeId.c_str(),
-                  targetNodeId.c_str(),
+                  startNodeId.c_str(), targetNodeId.c_str(),
                   static_cast<unsigned>(plannedStepCount));
 
-    if (plannedStepCount == 0)
-    {
+    if (plannedStepCount == 0) {
         navigationActive = false;
         state.setNavigationStatus("ARRIVED");
         notifyStateChanged();
@@ -177,8 +162,8 @@ bool NavigationController::requestNavigation(const String &startNodeId, const St
     return true;
 }
 
-void NavigationController::cancel(const char *navigationStatus, bool clearTargetNode)
-{
+void NavigationController::cancel(const char *navigationStatus,
+                                  bool clearTargetNode) {
     navigationActive = false;
     motionPhase = MotionPhase::IDLE;
     plannedStepCount = 0;
@@ -196,33 +181,31 @@ void NavigationController::cancel(const char *navigationStatus, bool clearTarget
     notifyStateChanged();
 }
 
-void NavigationController::setStateChangedCallback(StateChangedCallback callback)
-{
+void NavigationController::setStateChangedCallback(
+    StateChangedCallback callback) {
     stateChangedCallback = callback;
 }
 
-int8_t NavigationController::findNodeIndex(const String &nodeId) const
-{
-    for (uint8_t i = 0; i < GRAPH_NODE_COUNT; ++i)
-    {
+int8_t NavigationController::findNodeIndex(const String &nodeId) const {
+    for (uint8_t i = 0; i < GRAPH_NODE_COUNT; ++i) {
         if (nodeId == GRAPH_NODES[i].id)
             return static_cast<int8_t>(i);
     }
     return -1;
 }
 
-int8_t NavigationController::findNodeIndexByRfid(const String &rfidUid) const
-{
-    for (uint8_t i = 0; i < GRAPH_NODE_COUNT; ++i)
-    {
+int8_t NavigationController::findNodeIndexByRfid(const String &rfidUid) const {
+    for (uint8_t i = 0; i < GRAPH_NODE_COUNT; ++i) {
         if (rfidUid == GRAPH_NODES[i].rfidUid)
             return static_cast<int8_t>(i);
     }
     return -1;
 }
 
-bool NavigationController::buildPath(int8_t startNodeIndex, int8_t targetNodeIndex, PlannedStep *outSteps, uint8_t &outStepCount) const
-{
+bool NavigationController::buildPath(int8_t startNodeIndex,
+                                     int8_t targetNodeIndex,
+                                     PlannedStep *outSteps,
+                                     uint8_t &outStepCount) const {
     outStepCount = 0;
 
     if (startNodeIndex == targetNodeIndex)
@@ -239,14 +222,12 @@ bool NavigationController::buildPath(int8_t startNodeIndex, int8_t targetNodeInd
     queue[queueTail++] = static_cast<uint8_t>(startNodeIndex);
     visited[startNodeIndex] = true;
 
-    while (queueHead < queueTail)
-    {
+    while (queueHead < queueTail) {
         const uint8_t node = queue[queueHead++];
         if (node == static_cast<uint8_t>(targetNodeIndex))
             break;
 
-        for (uint8_t edgeIndex = 0; edgeIndex < GRAPH_EDGE_COUNT; ++edgeIndex)
-        {
+        for (uint8_t edgeIndex = 0; edgeIndex < GRAPH_EDGE_COUNT; ++edgeIndex) {
             const auto &edge = GRAPH_EDGES[edgeIndex];
             if (edge.from != node)
                 continue;
@@ -267,8 +248,7 @@ bool NavigationController::buildPath(int8_t startNodeIndex, int8_t targetNodeInd
     uint8_t reverseEdgeCount = 0;
     int8_t walk = targetNodeIndex;
 
-    while (walk != startNodeIndex && reverseEdgeCount < MAX_PATH_STEPS)
-    {
+    while (walk != startNodeIndex && reverseEdgeCount < MAX_PATH_STEPS) {
         const int8_t edgeIndex = previousEdge[walk];
         if (edgeIndex < 0)
             return false;
@@ -277,8 +257,7 @@ bool NavigationController::buildPath(int8_t startNodeIndex, int8_t targetNodeInd
         walk = previousNode[walk];
     }
 
-    for (uint8_t i = 0; i < reverseEdgeCount; ++i)
-    {
+    for (uint8_t i = 0; i < reverseEdgeCount; ++i) {
         const auto &edge = GRAPH_EDGES[reverseEdges[reverseEdgeCount - 1U - i]];
         outSteps[i] = PlannedStep{edge.from, edge.to, edge.action};
     }
@@ -287,8 +266,7 @@ bool NavigationController::buildPath(int8_t startNodeIndex, int8_t targetNodeInd
     return true;
 }
 
-void NavigationController::processRfid(uint32_t nowMs)
-{
+void NavigationController::processRfid(uint32_t nowMs) {
     if (!sensors.hasRfid())
         return;
 
@@ -297,18 +275,17 @@ void NavigationController::processRfid(uint32_t nowMs)
         return;
 
     lastSeenRfid = uid;
+    audio.playBeep(1000, 300);
 
     const int8_t nodeIndex = findNodeIndexByRfid(uid);
-    if (nodeIndex < 0)
-    {
+    if (nodeIndex < 0) {
         Serial.printf("[nav] ignoring unknown RFID %s\n", uid.c_str());
         return;
     }
 
     setLocalizedNode(nodeIndex);
     Serial.printf("[nav] localized at node %s (%s)\n",
-                  GRAPH_NODES[nodeIndex].id,
-                  uid.c_str());
+                  GRAPH_NODES[nodeIndex].id, uid.c_str());
 
     if (!navigationActive || motionPhase != MotionPhase::DRIVING)
         return;
@@ -320,10 +297,8 @@ void NavigationController::processRfid(uint32_t nowMs)
     completeStep(nowMs);
 }
 
-void NavigationController::startStep(uint32_t nowMs)
-{
-    if (currentStepIndex >= plannedStepCount)
-    {
+void NavigationController::startStep(uint32_t nowMs) {
+    if (currentStepIndex >= plannedStepCount) {
         navigationActive = false;
         motionPhase = MotionPhase::IDLE;
         state.setNavigationStatus("ARRIVED");
@@ -335,12 +310,10 @@ void NavigationController::startStep(uint32_t nowMs)
     Serial.printf("[nav] step %u/%u %s -> %s action=%u\n",
                   static_cast<unsigned>(currentStepIndex + 1U),
                   static_cast<unsigned>(plannedStepCount),
-                  GRAPH_NODES[step.from].id,
-                  GRAPH_NODES[step.to].id,
+                  GRAPH_NODES[step.from].id, GRAPH_NODES[step.to].id,
                   static_cast<unsigned>(step.action));
 
-    if (step.action == NavigationAction::STRAIGHT)
-    {
+    if (step.action == NavigationAction::STRAIGHT) {
         startDriving(nowMs);
         return;
     }
@@ -348,34 +321,33 @@ void NavigationController::startStep(uint32_t nowMs)
     startTurning(step.action, nowMs);
 }
 
-void NavigationController::startDriving(uint32_t)
-{
+void NavigationController::startDriving(uint32_t) {
     motionPhase = MotionPhase::DRIVING;
     state.setNavigationStatus("DRIVING");
     drive.setTargets(NAV_DRIVE_THROTTLE, 0.0f, true);
     notifyStateChanged();
 }
 
-void NavigationController::startTurning(NavigationAction action, uint32_t nowMs)
-{
+void NavigationController::startTurning(NavigationAction action,
+                                        uint32_t nowMs) {
     motionPhase = MotionPhase::TURNING;
     accumulatedTurnDegrees = 0.0f;
     lastTurnSampleMs = nowMs;
     turnStartMs = nowMs;
 
-    const float steer = (action == NavigationAction::TURN_RIGHT) ? NAV_TURN_STEER : -NAV_TURN_STEER;
+    const float steer = (action == NavigationAction::TURN_RIGHT)
+                            ? NAV_TURN_STEER
+                            : -NAV_TURN_STEER;
     state.setNavigationStatus("TURNING");
     drive.setTargets(0.0f, steer, true);
     notifyStateChanged();
 }
 
-void NavigationController::completeStep(uint32_t nowMs)
-{
+void NavigationController::completeStep(uint32_t nowMs) {
     stopMotion();
     ++currentStepIndex;
 
-    if (currentStepIndex >= plannedStepCount)
-    {
+    if (currentStepIndex >= plannedStepCount) {
         navigationActive = false;
         motionPhase = MotionPhase::IDLE;
         state.setNavigationStatus("ARRIVED");
@@ -387,13 +359,9 @@ void NavigationController::completeStep(uint32_t nowMs)
     startStep(nowMs);
 }
 
-void NavigationController::stopMotion()
-{
-    drive.setTargets(0.0f, 0.0f, true);
-}
+void NavigationController::stopMotion() { drive.setTargets(0.0f, 0.0f, true); }
 
-void NavigationController::setLocalizedNode(int8_t nodeIndex)
-{
+void NavigationController::setLocalizedNode(int8_t nodeIndex) {
     if (nodeIndex < 0 || nodeIndex >= static_cast<int8_t>(GRAPH_NODE_COUNT))
         return;
 
@@ -403,8 +371,7 @@ void NavigationController::setLocalizedNode(int8_t nodeIndex)
     notifyStateChanged();
 }
 
-void NavigationController::setError(const char *message)
-{
+void NavigationController::setError(const char *message) {
     stopMotion();
     navigationActive = false;
     motionPhase = MotionPhase::IDLE;
@@ -422,8 +389,7 @@ void NavigationController::setError(const char *message)
         Serial.printf("[nav] error: %s\n", message);
 }
 
-void NavigationController::notifyStateChanged() const
-{
+void NavigationController::notifyStateChanged() const {
     if (stateChangedCallback)
         stateChangedCallback();
 }

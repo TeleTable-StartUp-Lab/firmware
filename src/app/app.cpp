@@ -35,7 +35,7 @@ namespace
                     .sample_rate_hz = 16000});
 
     RobotState state;
-    NavigationController navigation(state, drive, sensors);
+    NavigationController navigation(state, drive, sensors, audio);
     OledUi oled(state, sensors);
     ConsoleCommander console(drive, sensors, leds, audio);
     BackendCoordinator backend(state, drive, sensors, navigation, leds, audio);

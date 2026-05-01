@@ -6,6 +6,7 @@
 #include "app/drive_controller.h"
 #include "app/robot_state.h"
 #include "app/sensor_suite.h"
+#include "drivers/i2s_audio.h"
 
 class NavigationController
 {
@@ -33,7 +34,7 @@ public:
 
     using StateChangedCallback = std::function<void()>;
 
-    NavigationController(RobotState &state, DriveController &drive, SensorSuite &sensors);
+    NavigationController(RobotState &state, DriveController &drive, SensorSuite &sensors, I2sAudio &audio);
 
     void begin();
     void update(uint32_t nowMs);
@@ -79,6 +80,7 @@ private:
     RobotState &state;
     DriveController &drive;
     SensorSuite &sensors;
+    I2sAudio &audio;
     StateChangedCallback stateChangedCallback;
 
     int8_t currentNodeIndex;
