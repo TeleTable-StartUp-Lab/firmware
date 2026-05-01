@@ -186,6 +186,25 @@ void BackendCoordinator::begin()
                 audio.setVolume(value);
                 Serial.printf("[ws] AUDIO_VOLUME value=%.2f\n", static_cast<double>(value));
             },
+            .onAudioStreamStart = [this](uint32_t sample_rate_hz, uint8_t channels, uint8_t bits_per_sample, bool little_endian)
+            {
+                const bool ok = audio.startStream(sample_rate_hz, channels, bits_per_sample, little_endian);
+                Serial.printf("[ws] AUDIO_STREAM_START sr=%lu ch=%u bits=%u le=%d %s\n",
+                              static_cast<unsigned long>(sample_rate_hz),
+                              static_cast<unsigned>(channels),
+                              static_cast<unsigned>(bits_per_sample),
+                              little_endian ? 1 : 0,
+                              ok ? "ok" : "rejected");
+            },
+            .onAudioStreamStop = [this]()
+            {
+                audio.stopStream();
+                Serial.println("[ws] AUDIO_STREAM_STOP");
+            },
+            .onAudioStreamData = [this](const uint8_t *data, size_t len)
+            {
+                audio.enqueuePcmBytes(data, len);
+            },
             .onStop = [this]()
             {
                 navigation.cancel("IDLE");

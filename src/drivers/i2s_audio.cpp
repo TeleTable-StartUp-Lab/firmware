@@ -94,3 +94,104 @@ void I2sAudio::playBeep(uint16_t freq_hz, uint16_t duration_ms)
         produced += chunk;
     }
 }
+
+bool I2sAudio::startStream(uint32_t sample_rate_hz, uint8_t channels, uint8_t bits_per_sample, bool little_endian)
+{
+    if (!ok_)
+        return false;
+    if (channels != 1 || bits_per_sample != 16 || !little_endian)
+        return false;
+
+    if (i2s_set_clk(I2S_NUM_0, static_cast<uint32_t>(sample_rate_hz), I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_STEREO) != ESP_OK)
+        return false;
+
+    stream_sample_rate_hz_ = sample_rate_hz;
+    stream_channels_ = channels;
+    stream_bits_per_sample_ = bits_per_sample;
+    stream_little_endian_ = little_endian;
+
+    pcm_write_idx_ = 0;
+    pcm_read_idx_ = 0;
+    pcm_available_ = 0;
+    i2s_zero_dma_buffer(I2S_NUM_0);
+
+    stream_active_ = true;
+    return true;
+}
+
+void I2sAudio::stopStream()
+{
+    if (!ok_)
+        return;
+
+    stream_active_ = false;
+    pcm_write_idx_ = 0;
+    pcm_read_idx_ = 0;
+    pcm_available_ = 0;
+    i2s_zero_dma_buffer(I2S_NUM_0);
+}
+
+bool I2sAudio::enqueuePcmBytes(const uint8_t *data, size_t len)
+{
+    if (!ok_ || !stream_active_)
+        return false;
+    if (stream_channels_ != 1 || stream_bits_per_sample_ != 16 || !stream_little_endian_)
+        return false;
+    if (!data || len < 2)
+        return false;
+
+    const size_t total_samples = len / 2;
+    size_t writable = kPcmBufferSamples - pcm_available_;
+    if (!writable)
+        return false;
+
+    const size_t to_write = std::min(writable, total_samples);
+    for (size_t i = 0; i < to_write; ++i)
+    {
+        const size_t byte_idx = i * 2;
+        const uint16_t lo = data[byte_idx];
+        const uint16_t hi = data[byte_idx + 1];
+        const int16_t sample = static_cast<int16_t>((hi << 8) | lo);
+
+        pcm_buffer_[pcm_write_idx_] = sample;
+        pcm_write_idx_ = (pcm_write_idx_ + 1) % kPcmBufferSamples;
+    }
+    pcm_available_ += to_write;
+    return to_write == total_samples;
+}
+
+void I2sAudio::loop()
+{
+    if (!ok_ || !stream_active_ || pcm_available_ == 0)
+        return;
+
+    constexpr size_t kChunkSamples = 256;
+    const size_t chunk = std::min(kChunkSamples, pcm_available_);
+    int16_t out[kChunkSamples * 2];
+
+    for (size_t i = 0; i < chunk; ++i)
+    {
+        const int16_t sample = pcm_buffer_[pcm_read_idx_];
+        pcm_read_idx_ = (pcm_read_idx_ + 1) % kPcmBufferSamples;
+
+        float scaled = static_cast<float>(sample) * volume_;
+        if (scaled > 32767.0f)
+            scaled = 32767.0f;
+        if (scaled < -32768.0f)
+            scaled = -32768.0f;
+        const int16_t out_sample = static_cast<int16_t>(scaled);
+
+        out[(i * 2) + 0] = out_sample;
+        out[(i * 2) + 1] = out_sample;
+    }
+
+    pcm_available_ -= chunk;
+
+    size_t bytes_written = 0;
+    i2s_write(I2S_NUM_0, out, chunk * 2 * sizeof(int16_t), &bytes_written, 10);
+}
+
+bool I2sAudio::isStreaming() const
+{
+    return stream_active_;
+}

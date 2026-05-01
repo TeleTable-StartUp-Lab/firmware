@@ -32,7 +32,7 @@ namespace
     I2sAudio audio({.bclk_pin = static_cast<int>(BoardPins::I2S_BCLK),
                     .lrclk_pin = static_cast<int>(BoardPins::I2S_LRCLK),
                     .dout_pin = static_cast<int>(BoardPins::I2S_DOUT),
-                    .sample_rate_hz = 22050});
+                    .sample_rate_hz = 16000});
 
     RobotState state;
     NavigationController navigation(state, drive, sensors);
@@ -155,6 +155,7 @@ namespace App
         statusPrintTask(nowMs);
 
         sensors.update(nowMs);
+        audio.loop();
         navigation.update(nowMs);
         oled.update(nowMs);
         leds.autoTask();

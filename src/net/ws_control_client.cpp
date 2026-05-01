@@ -99,6 +99,25 @@ namespace
             return;
         }
 
+        if (strcmp(cmd, "AUDIO_STREAM_START") == 0)
+        {
+            const uint32_t sample_rate_hz = doc["sample_rate_hz"] | 0U;
+            const uint8_t channels = static_cast<uint8_t>(doc["channels"] | 0);
+            const uint8_t bits_per_sample = static_cast<uint8_t>(doc["bits_per_sample"] | 0);
+            const bool little_endian = doc["little_endian"] | false;
+
+            if (g_handlers.onAudioStreamStart)
+                g_handlers.onAudioStreamStart(sample_rate_hz, channels, bits_per_sample, little_endian);
+            return;
+        }
+
+        if (strcmp(cmd, "AUDIO_STREAM_STOP") == 0)
+        {
+            if (g_handlers.onAudioStreamStop)
+                g_handlers.onAudioStreamStop();
+            return;
+        }
+
         if (strcmp(cmd, "STOP") == 0)
         {
             if (g_handlers.onStop)
@@ -143,6 +162,14 @@ namespace
                 if (AppConfig::WS_LOG_RX)
                     Serial.printf("[ws] rx: %.*s\n", (int)length, (const char *)payload);
                 handleJsonMessage((const char *)payload, length);
+            }
+            break;
+
+        case WStype_BIN:
+            if (payload && length > 0)
+            {
+                if (g_handlers.onAudioStreamData)
+                    g_handlers.onAudioStreamData(payload, length);
             }
             break;
 
