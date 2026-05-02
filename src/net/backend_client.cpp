@@ -38,7 +38,8 @@ namespace
     {
         RequestType type;
         uint16_t robotPort;
-        char eventName[EVENT_NAME_CAP];
+        char eventPriority[SHORT_TEXT_FIELD_CAP];
+        char eventMessage[TEXT_FIELD_CAP];
     };
 
     struct StatePayload
@@ -264,10 +265,11 @@ namespace
         return postJsonBlocking("/table/state", payload);
     }
 
-    bool postEventBlocking(const String &eventName)
+    bool postEventBlocking(const String &priority, const String &message)
     {
         JsonDocument doc;
-        doc["event"] = eventName;
+        doc["priority"] = priority;
+        doc["message"] = message;
         doc["timestamp"] = (uint32_t)millis();
 
         String payload;
@@ -313,7 +315,7 @@ namespace
                     break;
 
                 case RequestType::Event:
-                    postEventBlocking(String(request.eventName));
+                    postEventBlocking(String(request.eventPriority), String(request.eventMessage));
                     break;
                 }
                 continue;
@@ -568,12 +570,12 @@ namespace BackendClient
         return true;
     }
 
-    bool postEvent(const String &eventName)
+    bool postEvent(const String &priority, const String &message)
     {
-        return postEventBlocking(eventName);
+        return postEventBlocking(priority, message);
     }
 
-    bool queueEvent(const String &eventName)
+    bool queueEvent(const String &priority, const String &message)
     {
         begin();
         if (!g_requestQueue)
@@ -581,7 +583,8 @@ namespace BackendClient
 
         BackendRequest request{};
         request.type = RequestType::Event;
-        copyStringField(request.eventName, sizeof(request.eventName), eventName);
+        copyStringField(request.eventPriority, sizeof(request.eventPriority), priority);
+        copyStringField(request.eventMessage, sizeof(request.eventMessage), message);
         return xQueueSendToBack(g_requestQueue, &request, 0) == pdTRUE;
     }
 }

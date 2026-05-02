@@ -91,7 +91,8 @@ void DriveController::update(uint32_t nowMs, RobotHttpServer::DriveMode mode)
 
     dt = clampf(dt, 0.0f, 0.100f);
 
-    const bool obsNow = sensors.frontObstacleNow();
+    // TODO: IR obstacle detection temporarily disabled
+    const bool obsNow = false; // sensors.frontObstacleNow();
     if (obsNow)
     {
         obstacleHoldUntilMs = nowMs + cfg.obstacle_hold_ms;

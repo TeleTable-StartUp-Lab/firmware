@@ -319,8 +319,9 @@ void BackendCoordinator::eventTask(uint32_t nowMs)
     if ((nowMs - lastBackendEventMs) < AppConfig::BACKEND_EVENT_MIN_GAP_MS)
         return;
 
+    const String priorityToPost = "INFO";
     const String eventToPost = pendingEvent;
-    if (!BackendClient::queueEvent(eventToPost))
+    if (!BackendClient::queueEvent(priorityToPost, eventToPost))
         return;
 
     eventPending = false;

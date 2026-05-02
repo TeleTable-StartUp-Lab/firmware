@@ -1,6 +1,8 @@
 #include "app/navigation_controller.h"
+#include "net/backend_client.h"
 
 #include <cmath>
+#include <cstdarg>
 
 namespace {
 constexpr uint8_t NAV_GRAPH_NODE_COUNT = 3;
@@ -14,9 +16,9 @@ constexpr char HOME_NODE_LABEL[] = "Home";
 constexpr char KITCHEN_NODE_LABEL[] = "Kitchen";
 constexpr char OFFICE_NODE_LABEL[] = "Office";
 
-constexpr char HOME_NODE_RFID[] = "81:C7:97:F5";
-constexpr char KITCHEN_NODE_RFID[] = "B1:4E:96:F5";
-constexpr char OFFICE_NODE_RFID[] = "C1:0C:97:F5";
+constexpr char HOME_NODE_RFID[] = "E1:F1:94:F5";
+constexpr char KITCHEN_NODE_RFID[] = "11:A3:95:F5";
+constexpr char OFFICE_NODE_RFID[] = "C1:41:94:F5";
 
 constexpr float NAV_DRIVE_THROTTLE = 0.35f;
 constexpr float NAV_TURN_STEER = 1.0f;
@@ -35,6 +37,17 @@ constexpr NavigationController::GraphEdge GRAPH_EDGES[NAV_GRAPH_EDGE_COUNT] = {
     {1, 2, NavigationController::NavigationAction::TURN_RIGHT},
     {2, 1, NavigationController::NavigationAction::TURN_LEFT},
 };
+
+static void logNavEvent(const char* priority, const char* format, ...) {
+    char buf[128];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buf, sizeof(buf), format, args);
+    va_end(args);
+    Serial.print("[nav] ");
+    Serial.println(buf);
+    BackendClient::queueEvent(String(priority), String(buf));
+}
 } // namespace
 
 NavigationController::NavigationController(RobotState &stateRef,
@@ -59,8 +72,9 @@ void NavigationController::update(uint32_t nowMs) {
     if (!navigationActive)
         return;
 
-    if (sensors.frontObstacleNow()) {
-        Serial.println("[nav] obstacle detected during navigation");
+    // TODO: IR obstacle detection temporarily disabled
+    if (false && sensors.frontObstacleNow()) {
+        logNavEvent("WARN", "obstacle detected during navigation");
         setError("obstacle detected");
         return;
     }
@@ -69,7 +83,7 @@ void NavigationController::update(uint32_t nowMs) {
         return;
 
     if (!sensors.hasImu()) {
-        Serial.println("[nav] turn aborted: IMU reading unavailable");
+        logNavEvent("ERROR", "turn aborted: IMU reading unavailable");
         setError("imu unavailable");
         return;
     }
@@ -90,7 +104,7 @@ void NavigationController::update(uint32_t nowMs) {
     }
 
     if ((nowMs - turnStartMs) >= MAX_TURN_TIME_MS) {
-        Serial.println("[nav] turn aborted: timeout");
+        logNavEvent("ERROR", "turn aborted: timeout");
         setError("turn timeout");
     }
 }
@@ -146,7 +160,7 @@ bool NavigationController::requestNavigation(const String &startNodeId,
     state.setNavigationStatus("PLANNING");
     notifyStateChanged();
 
-    Serial.printf("[nav] route accepted %s -> %s (%u steps)\n",
+    logNavEvent("INFO", "route accepted %s -> %s (%u steps)",
                   startNodeId.c_str(), targetNodeId.c_str(),
                   static_cast<unsigned>(plannedStepCount));
 
@@ -154,7 +168,7 @@ bool NavigationController::requestNavigation(const String &startNodeId,
         navigationActive = false;
         state.setNavigationStatus("ARRIVED");
         notifyStateChanged();
-        Serial.printf("[nav] already at target %s\n", targetNodeId.c_str());
+        logNavEvent("INFO", "already at target %s", targetNodeId.c_str());
         return true;
     }
 
@@ -279,12 +293,12 @@ void NavigationController::processRfid(uint32_t nowMs) {
 
     const int8_t nodeIndex = findNodeIndexByRfid(uid);
     if (nodeIndex < 0) {
-        Serial.printf("[nav] ignoring unknown RFID %s\n", uid.c_str());
+        logNavEvent("WARN", "ignoring unknown RFID %s", uid.c_str());
         return;
     }
 
     setLocalizedNode(nodeIndex);
-    Serial.printf("[nav] localized at node %s (%s)\n",
+    logNavEvent("INFO", "localized at node %s (%s)",
                   GRAPH_NODES[nodeIndex].id, uid.c_str());
 
     if (!navigationActive || motionPhase != MotionPhase::DRIVING)
@@ -307,7 +321,7 @@ void NavigationController::startStep(uint32_t nowMs) {
     }
 
     const PlannedStep &step = plannedSteps[currentStepIndex];
-    Serial.printf("[nav] step %u/%u %s -> %s action=%u\n",
+    logNavEvent("INFO", "step %u/%u %s -> %s action=%u",
                   static_cast<unsigned>(currentStepIndex + 1U),
                   static_cast<unsigned>(plannedStepCount),
                   GRAPH_NODES[step.from].id, GRAPH_NODES[step.to].id,
@@ -336,8 +350,8 @@ void NavigationController::startTurning(NavigationAction action,
     turnStartMs = nowMs;
 
     const float steer = (action == NavigationAction::TURN_RIGHT)
-                            ? NAV_TURN_STEER
-                            : -NAV_TURN_STEER;
+                            ? -NAV_TURN_STEER
+                            : NAV_TURN_STEER;
     state.setNavigationStatus("TURNING");
     drive.setTargets(0.0f, steer, true);
     notifyStateChanged();
@@ -352,7 +366,7 @@ void NavigationController::completeStep(uint32_t nowMs) {
         motionPhase = MotionPhase::IDLE;
         state.setNavigationStatus("ARRIVED");
         notifyStateChanged();
-        Serial.printf("[nav] arrived at %s\n", state.targetNode().c_str());
+        logNavEvent("INFO", "arrived at %s", state.targetNode().c_str());
         return;
     }
 
@@ -386,7 +400,7 @@ void NavigationController::setError(const char *message) {
     notifyStateChanged();
 
     if (message && message[0] != '\0')
-        Serial.printf("[nav] error: %s\n", message);
+        logNavEvent("ERROR", "error: %s", message);
 }
 
 void NavigationController::notifyStateChanged() const {

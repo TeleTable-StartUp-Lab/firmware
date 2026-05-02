@@ -71,6 +71,6 @@ namespace BackendClient
                     float currentA,
                     float powerW);
 
-    bool postEvent(const String &eventName);
-    bool queueEvent(const String &eventName);
+    bool postEvent(const String &priority, const String &message);
+    bool queueEvent(const String &priority, const String &message);
 }
