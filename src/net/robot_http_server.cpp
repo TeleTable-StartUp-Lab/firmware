@@ -1,5 +1,7 @@
 #include "net/robot_http_server.h"
 
+#include "app/firmware_alert.h"
+
 #include <WebServer.h>
 #include <ArduinoJson.h>
 
@@ -137,6 +139,7 @@ namespace RobotHttpServer
             JsonDocument doc;
             doc["ok"] = false;
             doc["error"] = "missing body";
+            FirmwareAlert::warn("HTTP /mode rejected: missing request body");
             sendJson(400, doc);
             return;
         }
@@ -148,6 +151,7 @@ namespace RobotHttpServer
             JsonDocument doc;
             doc["ok"] = false;
             doc["error"] = "invalid json";
+            FirmwareAlert::warn("HTTP /mode rejected: invalid JSON payload");
             sendJson(400, doc);
             return;
         }
@@ -159,6 +163,7 @@ namespace RobotHttpServer
             JsonDocument doc;
             doc["ok"] = false;
             doc["error"] = "invalid mode";
+            FirmwareAlert::warnf("HTTP /mode rejected: invalid mode '%s'", modeStr.c_str());
             sendJson(400, doc);
             return;
         }
@@ -182,6 +187,7 @@ namespace RobotHttpServer
             JsonDocument doc;
             doc["ok"] = false;
             doc["error"] = "missing body";
+            FirmwareAlert::warn("HTTP /select rejected: missing request body");
             sendJson(400, doc);
             return;
         }
@@ -193,6 +199,7 @@ namespace RobotHttpServer
             JsonDocument doc;
             doc["ok"] = false;
             doc["error"] = "invalid json";
+            FirmwareAlert::warn("HTTP /select rejected: invalid JSON payload");
             sendJson(400, doc);
             return;
         }
@@ -205,6 +212,7 @@ namespace RobotHttpServer
             JsonDocument doc;
             doc["ok"] = false;
             doc["error"] = "startNode/endNode required";
+            FirmwareAlert::warn("HTTP /select rejected: startNode and endNode are required");
             sendJson(400, doc);
             return;
         }

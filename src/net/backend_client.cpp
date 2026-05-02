@@ -17,6 +17,7 @@ namespace
     constexpr uint32_t WORKER_IDLE_MS = 25;
     constexpr size_t EVENT_NAME_CAP = 64;
     constexpr size_t TEXT_FIELD_CAP = 64;
+    constexpr size_t EVENT_MESSAGE_CAP = 160;
     constexpr size_t SHORT_TEXT_FIELD_CAP = 24;
     constexpr size_t RFID_UID_CAP = 48;
 
@@ -39,7 +40,7 @@ namespace
         RequestType type;
         uint16_t robotPort;
         char eventPriority[SHORT_TEXT_FIELD_CAP];
-        char eventMessage[TEXT_FIELD_CAP];
+        char eventMessage[EVENT_MESSAGE_CAP];
     };
 
     struct StatePayload

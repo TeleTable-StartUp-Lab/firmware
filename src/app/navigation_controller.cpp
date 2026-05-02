@@ -1,5 +1,5 @@
 #include "app/navigation_controller.h"
-#include "net/backend_client.h"
+#include "app/firmware_alert.h"
 
 #include <cmath>
 #include <cstdarg>
@@ -44,7 +44,8 @@ constexpr NavigationController::GraphEdge GRAPH_EDGES[NAV_GRAPH_EDGE_COUNT] = {
     {3, 2, 0},   // Grave → Office       (0°,   up)
 };
 
-static void logNavEvent(const char *priority, const char *format, ...) {
+void logNavInfo(const char *format, ...)
+{
     char buf[128];
     va_list args;
     va_start(args, format);
@@ -52,7 +53,31 @@ static void logNavEvent(const char *priority, const char *format, ...) {
     va_end(args);
     Serial.print("[nav] ");
     Serial.println(buf);
-    BackendClient::queueEvent(String(priority), String(buf));
+    FirmwareAlert::info(String(buf));
+}
+
+void logNavWarn(const char *format, ...)
+{
+    char buf[128];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buf, sizeof(buf), format, args);
+    va_end(args);
+    Serial.print("[nav] ");
+    Serial.println(buf);
+    FirmwareAlert::warn(String(buf));
+}
+
+void logNavError(const char *format, ...)
+{
+    char buf[128];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buf, sizeof(buf), format, args);
+    va_end(args);
+    Serial.print("[nav] ");
+    Serial.println(buf);
+    FirmwareAlert::error(String(buf));
 }
 } // namespace
 
@@ -81,7 +106,7 @@ void NavigationController::update(uint32_t nowMs) {
 
     // TODO: IR obstacle detection temporarily disabled
     if (false && sensors.frontObstacleNow()) {
-        logNavEvent("WARN", "obstacle detected during navigation");
+        logNavWarn("obstacle detected during navigation");
         setError("obstacle detected");
         return;
     }
@@ -90,7 +115,7 @@ void NavigationController::update(uint32_t nowMs) {
         return;
 
     if (!sensors.hasImu()) {
-        logNavEvent("ERROR", "turn aborted: IMU reading unavailable");
+        logNavError("turn aborted: IMU reading unavailable");
         setError("imu unavailable");
         return;
     }
@@ -120,17 +145,15 @@ void NavigationController::update(uint32_t nowMs) {
         while (currentHeadingDegrees >= 360.0f)
             currentHeadingDegrees -= 360.0f;
 
-        logNavEvent("INFO",
-                    "Target degrees reached (%d), starting forward drive. New "
-                    "heading: %.0f",
-                    (int)accumulatedTurnDegrees, currentHeadingDegrees);
+        logNavInfo("Target degrees reached (%d), starting forward drive. New heading: %.0f",
+                   (int)accumulatedTurnDegrees, currentHeadingDegrees);
         drive.setTargets(0.0f, 0.0f, true);
         startDriving(nowMs, false);
         return;
     }
 
     if (nowMs >= turnStartMs && (nowMs - turnStartMs) >= MAX_TURN_TIME_MS) {
-        logNavEvent("ERROR", "turn aborted: timeout");
+        logNavError("turn aborted: timeout");
         setError("turn timeout");
     }
 }
@@ -138,13 +161,20 @@ void NavigationController::update(uint32_t nowMs) {
 bool NavigationController::requestNavigation(const String &startNodeId,
                                              const String &targetNodeId,
                                              String *errorMessage) {
-    auto rejectRequest = [&](const char *message) -> bool {
+    auto rejectRequest = [&](const char *message, bool critical = false) -> bool {
         if (errorMessage)
             *errorMessage = message ? message : "";
 
         if (!navigationActive) {
             state.setNavigationStatus("ERROR");
             notifyStateChanged();
+        }
+
+        if (message && message[0] != '\0') {
+            if (critical)
+                logNavError("navigation request rejected: %s", message);
+            else
+                logNavWarn("navigation request rejected: %s", message);
         }
         return false;
     };
@@ -161,17 +191,14 @@ bool NavigationController::requestNavigation(const String &startNodeId,
         return rejectRequest("manual mode requires home reinitialization");
 
     if (currentNodeIndex < 0) {
-        logNavEvent(
-            "ERROR",
-            "current localization lost, please place at Home facing Kitchen");
-        return rejectRequest("current localization lost");
+        return rejectRequest("current localization lost, place robot at Home facing Kitchen", true);
     }
 
     int8_t actualStart = currentNodeIndex;
     if (actualStart == findNodeIndex(HOME_NODE_ID) &&
         startNodeId == HOME_NODE_ID) {
         currentHeadingDegrees = 0.0f;
-        logNavEvent("INFO", "Reset current heading to 0 at Home node");
+        logNavInfo("Reset current heading to 0 at Home node");
     }
 
     PlannedStep nextSteps[MAX_PATH_STEPS] = {};
@@ -246,15 +273,15 @@ bool NavigationController::requestNavigation(const String &startNodeId,
     state.setNavigationStatus("PLANNING");
     notifyStateChanged();
 
-    logNavEvent("INFO", "route accepted %s -> %s (%u steps)",
-                startNodeId.c_str(), targetNodeId.c_str(),
-                static_cast<unsigned>(plannedStepCount));
+    logNavInfo("route accepted %s -> %s (%u steps)",
+               startNodeId.c_str(), targetNodeId.c_str(),
+               static_cast<unsigned>(plannedStepCount));
 
     if (plannedStepCount == 0) {
         navigationActive = false;
         state.setNavigationStatus("ARRIVED");
         notifyStateChanged();
-        logNavEvent("INFO", "already at target %s", targetNodeId.c_str());
+        logNavInfo("already at target %s", targetNodeId.c_str());
         return true;
     }
 
@@ -290,7 +317,7 @@ void NavigationController::loseLocalization() {
     state.setCurrentNode("");
     state.setPosition("");
     needsHomeReinitialization = true;
-    logNavEvent("WARN", "Lost localization due to MANUAL override.");
+    logNavWarn("Lost localization due to MANUAL override");
     notifyStateChanged();
 }
 
@@ -427,7 +454,7 @@ void NavigationController::processRfid(uint32_t nowMs) {
 
     const int8_t nodeIndex = findNodeIndexByRfid(uid);
     if (nodeIndex < 0) {
-        logNavEvent("WARN", "ignoring unknown RFID %s", uid.c_str());
+        logNavWarn("ignoring unknown RFID %s", uid.c_str());
         return;
     }
 
@@ -440,8 +467,8 @@ void NavigationController::processRfid(uint32_t nowMs) {
     setLocalizedNode(nodeIndex);
     if (nodeIndex == homeIndex)
         needsHomeReinitialization = false;
-    logNavEvent("INFO", "localized at node %s (%s)", GRAPH_NODES[nodeIndex].id,
-                uid.c_str());
+    logNavInfo("localized at node %s (%s)", GRAPH_NODES[nodeIndex].id,
+               uid.c_str());
 
     if (!navigationActive || motionPhase != MotionPhase::DRIVING)
         return;
@@ -463,11 +490,11 @@ void NavigationController::startStep(uint32_t nowMs) {
     }
 
     const PlannedStep &step = plannedSteps[currentStepIndex];
-    logNavEvent("INFO", "step %u/%u %s -> %s action=%u",
-                static_cast<unsigned>(currentStepIndex + 1U),
-                static_cast<unsigned>(plannedStepCount),
-                GRAPH_NODES[step.from].id, GRAPH_NODES[step.to].id,
-                static_cast<unsigned>(step.action));
+    logNavInfo("step %u/%u %s -> %s action=%u",
+               static_cast<unsigned>(currentStepIndex + 1U),
+               static_cast<unsigned>(plannedStepCount),
+               GRAPH_NODES[step.from].id, GRAPH_NODES[step.to].id,
+               static_cast<unsigned>(step.action));
 
     if (step.action == NavigationAction::STRAIGHT) {
         startDriving(nowMs, false);
@@ -515,7 +542,7 @@ void NavigationController::completeStep(uint32_t nowMs) {
         motionPhase = MotionPhase::IDLE;
         state.setNavigationStatus("ARRIVED");
         notifyStateChanged();
-        logNavEvent("INFO", "arrived at %s", state.targetNode().c_str());
+        logNavInfo("arrived at %s", state.targetNode().c_str());
         return;
     }
 
@@ -551,7 +578,7 @@ void NavigationController::setError(const char *message) {
     notifyStateChanged();
 
     if (message && message[0] != '\0')
-        logNavEvent("ERROR", "error: %s", message);
+        logNavError("error: %s", message);
 }
 
 void NavigationController::notifyStateChanged() const {

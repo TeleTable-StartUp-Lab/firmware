@@ -19,7 +19,6 @@ public:
 
     void registerTask(uint32_t nowMs);
     void stateTask(uint32_t nowMs);
-    void eventTask(uint32_t nowMs);
     void pushState();
 
     void driveTask(uint32_t nowMs);
@@ -34,11 +33,8 @@ private:
 
     uint32_t lastBackendRegisterMs;
     uint32_t lastBackendStateMs;
-    uint32_t lastBackendEventMs;
 
     bool stateDirty;
     bool stateUrgent;
-
-    bool eventPending;
-    String pendingEvent;
+    bool wsSeenConnected;
 };

@@ -1,5 +1,6 @@
 #include "app/backend_coordinator.h"
 
+#include "app/firmware_alert.h"
 #include "app/app_utils.h"
 #include "app_config.h"
 #include "net/backend_client.h"
@@ -19,11 +20,9 @@ BackendCoordinator::BackendCoordinator(RobotState &stateRef, DriveController &dr
       audio(audioRef),
       lastBackendRegisterMs(0),
       lastBackendStateMs(0),
-      lastBackendEventMs(0),
       stateDirty(false),
       stateUrgent(false),
-      eventPending(false),
-      pendingEvent("")
+      wsSeenConnected(false)
 {
 }
 
@@ -106,9 +105,17 @@ void BackendCoordinator::begin()
         WsControlClient::Handlers{
             .onConnected = [this]()
             {
+                if (wsSeenConnected)
+                    FirmwareAlert::info("WebSocket reconnected");
+                else
+                    FirmwareAlert::info("WebSocket connected");
+                wsSeenConnected = true;
                 pushState();
             },
-            .onDisconnected = []() {},
+            .onDisconnected = []()
+            {
+                FirmwareAlert::warn("WebSocket disconnected");
+            },
             .onNavigate = [this](const String &startNode, const String &destNode)
             {
                 String error;
@@ -122,8 +129,6 @@ void BackendCoordinator::begin()
                 }
 
                 Serial.printf("[ws] NAVIGATE %s -> %s\n", startNode.c_str(), destNode.c_str());
-                pendingEvent = "START_BUTTON_PRESSED";
-                eventPending = true;
                 pushState();
             },
             .onDriveCommand = [this](float linear, float angular)
@@ -198,6 +203,11 @@ void BackendCoordinator::begin()
                               static_cast<unsigned>(bits_per_sample),
                               little_endian ? 1 : 0,
                               ok ? "ok" : "rejected");
+                if (!ok)
+                    FirmwareAlert::warnf("Audio stream start rejected (sr=%lu ch=%u bits=%u)",
+                                         static_cast<unsigned long>(sample_rate_hz),
+                                         static_cast<unsigned>(channels),
+                                         static_cast<unsigned>(bits_per_sample));
             },
             .onAudioStreamStop = [this]()
             {
@@ -236,6 +246,10 @@ void BackendCoordinator::begin()
                 else if (mode == "AUTO")
                 {
                     state.setDriveMode(RobotHttpServer::DriveMode::AUTO);
+                }
+                else
+                {
+                    FirmwareAlert::warnf("WebSocket SET_MODE rejected: invalid mode '%s'", mode.c_str());
                 }
 
                 Serial.printf("[ws] SET_MODE %s\n", mode.c_str());
@@ -331,23 +345,4 @@ void BackendCoordinator::stateTask(uint32_t nowMs)
     lastBackendStateMs = nowMs;
     stateDirty = false;
     stateUrgent = false;
-}
-
-void BackendCoordinator::eventTask(uint32_t nowMs)
-{
-    if (!WifiManager::isConnected())
-        return;
-    if (!eventPending)
-        return;
-    if ((nowMs - lastBackendEventMs) < AppConfig::BACKEND_EVENT_MIN_GAP_MS)
-        return;
-
-    const String priorityToPost = "INFO";
-    const String eventToPost = pendingEvent;
-    if (!BackendClient::queueEvent(priorityToPost, eventToPost))
-        return;
-
-    eventPending = false;
-    pendingEvent = "";
-    lastBackendEventMs = nowMs;
 }

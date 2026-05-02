@@ -1,5 +1,6 @@
 #include "net/ws_control_client.h"
 
+#include "app/firmware_alert.h"
 #include "net/backend_config.h"
 #include "app_config.h"
 #include <Arduino.h>
@@ -37,6 +38,7 @@ namespace
         if (err)
         {
             Serial.printf("[ws] json parse error: %s\n", err.c_str());
+            FirmwareAlert::warn("WebSocket command rejected: invalid JSON payload");
             return;
         }
 
@@ -44,6 +46,7 @@ namespace
         if (!cmd || cmd[0] == '\0')
         {
             Serial.println("[ws] missing 'command'");
+            FirmwareAlert::warn("WebSocket command rejected: missing command field");
             return;
         }
 
@@ -134,6 +137,7 @@ namespace
         }
 
         Serial.printf("[ws] unknown command: %s\n", cmd);
+        FirmwareAlert::warnf("WebSocket command rejected: unknown command '%s'", cmd);
         if (g_handlers.onUnknownCommand)
             g_handlers.onUnknownCommand(String(cmd), doc);
     }
@@ -175,6 +179,7 @@ namespace
 
         case WStype_ERROR:
             Serial.println("[ws] error");
+            FirmwareAlert::warn("WebSocket transport error");
             break;
 
         default:

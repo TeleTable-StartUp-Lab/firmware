@@ -3,6 +3,7 @@
 #include "app/backend_coordinator.h"
 #include "app/console_commander.h"
 #include "app/drive_controller.h"
+#include "app/firmware_alert.h"
 #include "app/led_controller.h"
 #include "app/navigation_controller.h"
 #include "app/oled_ui.h"
@@ -95,20 +96,28 @@ void setup() {
     const bool dok = oled.begin();
     Serial.printf("[oled] init %s (addr=0x%02X)\n", dok ? "ok" : "fail",
                   BoardPins::OLED_I2C_ADDRESS);
+    if (!dok)
+        FirmwareAlert::warnf("OLED init failed at address 0x%02X", BoardPins::OLED_I2C_ADDRESS);
     if (dok)
         oled.bootScreen();
 
     const bool lok = sensors.beginLux();
     Serial.printf("[bh1750] init %s (addr=0x%02X)\n", lok ? "ok" : "fail",
                   BoardPins::BH1750_I2C_ADDRESS);
+    if (!lok)
+        FirmwareAlert::warnf("BH1750 light sensor init failed at address 0x%02X", BoardPins::BH1750_I2C_ADDRESS);
 
     const bool pok = sensors.beginPowerMonitor();
     Serial.printf("[ina226] init %s (addr=0x%02X)\n", pok ? "ok" : "fail",
                   BoardPins::INA226_I2C_ADDRESS);
+    if (!pok)
+        FirmwareAlert::warnf("INA226 power monitor init failed at address 0x%02X", BoardPins::INA226_I2C_ADDRESS);
 
     const bool mok = sensors.beginImu();
     Serial.printf("[mpu6050] init %s (addr=0x%02X)\n", mok ? "ok" : "fail",
                   sensors.imuAddress());
+    if (!mok)
+        FirmwareAlert::errorf("MPU6050 IMU init failed at address 0x%02X", sensors.imuAddress());
 
     const bool rok = sensors.beginRfid();
     Serial.printf(
@@ -119,6 +128,8 @@ void setup() {
         static_cast<int>(BoardPins::RC522_SCK),
         static_cast<int>(BoardPins::RC522_MISO),
         static_cast<int>(BoardPins::RC522_MOSI));
+    if (!rok)
+        FirmwareAlert::error("RC522 RFID reader init failed");
 
     leds.begin();
 
@@ -126,12 +137,18 @@ void setup() {
 
     const bool aok = audio.begin();
     Serial.printf("[audio] init %s\n", aok ? "ok" : "fail");
+    if (!aok)
+        FirmwareAlert::warn("Audio output init failed");
     audio.setVolume(0.20f);
 
     const bool wok =
         WifiManager::begin(Secrets::WIFI_SSID, Secrets::WIFI_PASS, 15000);
     Serial.printf("[wifi] %s ip=%s\n", wok ? "connected" : "failed",
                   WifiManager::ip().c_str());
+    if (wok)
+        FirmwareAlert::infof("Wi-Fi connected (%s)", WifiManager::ip().c_str());
+    else
+        FirmwareAlert::error("Wi-Fi connection failed during boot");
 
     backend.begin();
 
@@ -143,6 +160,7 @@ void setup() {
     Serial.println("[boot] motors + IR(front) + BH1750 + INA226 + MPU-6050 + "
                    "RC522 + WS2812B + I2S audio + OLED + backend ws/http");
     Serial.println("[boot] obstacle policy: blocks FORWARD, reverse allowed");
+    FirmwareAlert::info("Firmware boot complete");
     console.printHelp();
 }
 
@@ -164,7 +182,6 @@ void loop() {
 
     backend.registerTask(nowMs);
     backend.stateTask(nowMs);
-    backend.eventTask(nowMs);
 
     delay(1);
 }
