@@ -225,10 +225,13 @@ void BackendCoordinator::begin()
                 }
                 else if (mode == "MANUAL")
                 {
-                    navigation.cancel("IDLE");
-                    navigation.loseLocalization();
-                    state.setDriveMode(RobotHttpServer::DriveMode::MANUAL);
-                    drive.setTargets(0.0f, 0.0f, false); // Reset drive command timer
+                    if (state.driveMode() != RobotHttpServer::DriveMode::MANUAL)
+                    {
+                        navigation.cancel("IDLE");
+                        navigation.loseLocalization();
+                        state.setDriveMode(RobotHttpServer::DriveMode::MANUAL);
+                        drive.setTargets(0.0f, 0.0f, false); // Reset drive command timer
+                    }
                 }
                 else if (mode == "AUTO")
                 {

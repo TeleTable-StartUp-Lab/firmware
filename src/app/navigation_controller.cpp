@@ -5,20 +5,23 @@
 #include <cstdarg>
 
 namespace {
-constexpr uint8_t NAV_GRAPH_NODE_COUNT = 3;
-constexpr uint8_t NAV_GRAPH_EDGE_COUNT = 4;
+constexpr uint8_t NAV_GRAPH_NODE_COUNT = 4;
+constexpr uint8_t NAV_GRAPH_EDGE_COUNT = 6;
 
 constexpr char HOME_NODE_ID[] = "home";
 constexpr char KITCHEN_NODE_ID[] = "kitchen";
 constexpr char OFFICE_NODE_ID[] = "office";
+constexpr char GRAVE_NODE_ID[] = "grave";
 
 constexpr char HOME_NODE_LABEL[] = "Home";
 constexpr char KITCHEN_NODE_LABEL[] = "Kitchen";
 constexpr char OFFICE_NODE_LABEL[] = "Office";
+constexpr char GRAVE_NODE_LABEL[] = "Grave";
 
 constexpr char HOME_NODE_RFID[] = "E1:F1:94:F5";
 constexpr char KITCHEN_NODE_RFID[] = "11:A3:95:F5";
 constexpr char OFFICE_NODE_RFID[] = "C1:41:94:F5";
+constexpr char GRAVE_NODE_RFID[] = "81:CB:97:F5";
 
 constexpr float NAV_DRIVE_THROTTLE = 0.35f;
 constexpr float NAV_TURN_STEER = 1.0f;
@@ -29,16 +32,19 @@ constexpr NavigationController::GraphNode GRAPH_NODES[NAV_GRAPH_NODE_COUNT] = {
     {HOME_NODE_ID, HOME_NODE_LABEL, HOME_NODE_RFID},
     {KITCHEN_NODE_ID, KITCHEN_NODE_LABEL, KITCHEN_NODE_RFID},
     {OFFICE_NODE_ID, OFFICE_NODE_LABEL, OFFICE_NODE_RFID},
+    {GRAVE_NODE_ID, GRAVE_NODE_LABEL, GRAVE_NODE_RFID},
 };
 
 constexpr NavigationController::GraphEdge GRAPH_EDGES[NAV_GRAPH_EDGE_COUNT] = {
-    {0, 1, 0},
-    {1, 0, 180},
-    {1, 2, 90},
-    {2, 1, 270},
+    {0, 1, 0},   // Home → Kitchen       (0°,  up)
+    {1, 0, 180}, // Kitchen → Home       (180°, down)
+    {1, 2, 90},  // Kitchen → Office     (90°,  right)
+    {2, 1, 270}, // Office → Kitchen     (270°, left)
+    {2, 3, 180}, // Office → Grave       (180°, down)
+    {3, 2, 0},   // Grave → Office       (0°,   up)
 };
 
-static void logNavEvent(const char* priority, const char* format, ...) {
+static void logNavEvent(const char *priority, const char *format, ...) {
     char buf[128];
     va_list args;
     va_start(args, format);
@@ -57,8 +63,8 @@ NavigationController::NavigationController(RobotState &stateRef,
     : state(stateRef), drive(driveRef), sensors(sensorsRef), audio(audioRef),
       currentNodeIndex(-1), targetNodeIndex(-1), navigationActive(false),
       motionPhase(MotionPhase::IDLE), plannedStepCount(0), currentStepIndex(0),
-    lastTurnSampleMs(0), turnStartMs(0), accumulatedTurnDegrees(0.0f),
-    needsHomeReinitialization(false) {}
+      lastTurnSampleMs(0), turnStartMs(0), accumulatedTurnDegrees(0.0f),
+      needsHomeReinitialization(false) {}
 
 void NavigationController::begin() {
     setLocalizedNode(0);
@@ -92,13 +98,15 @@ void NavigationController::update(uint32_t nowMs) {
     if (lastTurnSampleMs == 0)
         lastTurnSampleMs = nowMs;
 
-    const uint32_t deltaMs = (nowMs >= lastTurnSampleMs) ? (nowMs - lastTurnSampleMs) : 0;
+    const uint32_t deltaMs =
+        (nowMs >= lastTurnSampleMs) ? (nowMs - lastTurnSampleMs) : 0;
     lastTurnSampleMs = nowMs;
 
     // Apply a deadband so gyro noise doesn't falsely accumulate rotation!
     const float absGyro = std::fabs(sensors.imu().gyro_z_dps);
     if (absGyro > 3.0f) {
-        accumulatedTurnDegrees += absGyro * (static_cast<float>(deltaMs) * 0.001f);
+        accumulatedTurnDegrees +=
+            absGyro * (static_cast<float>(deltaMs) * 0.001f);
     }
 
     if (accumulatedTurnDegrees >= TARGET_TURN_DEGREES) {
@@ -107,10 +115,15 @@ void NavigationController::update(uint32_t nowMs) {
         } else if (pendingTurnAction == NavigationAction::TURN_LEFT) {
             currentHeadingDegrees -= 90.0f;
         }
-        while (currentHeadingDegrees < 0.0f) currentHeadingDegrees += 360.0f;
-        while (currentHeadingDegrees >= 360.0f) currentHeadingDegrees -= 360.0f;
+        while (currentHeadingDegrees < 0.0f)
+            currentHeadingDegrees += 360.0f;
+        while (currentHeadingDegrees >= 360.0f)
+            currentHeadingDegrees -= 360.0f;
 
-        logNavEvent("INFO", "Target degrees reached (%d), starting forward drive. New heading: %.0f", (int)accumulatedTurnDegrees, currentHeadingDegrees);
+        logNavEvent("INFO",
+                    "Target degrees reached (%d), starting forward drive. New "
+                    "heading: %.0f",
+                    (int)accumulatedTurnDegrees, currentHeadingDegrees);
         drive.setTargets(0.0f, 0.0f, true);
         startDriving(nowMs, false);
         return;
@@ -148,53 +161,64 @@ bool NavigationController::requestNavigation(const String &startNodeId,
         return rejectRequest("manual mode requires home reinitialization");
 
     if (currentNodeIndex < 0) {
-        logNavEvent("ERROR", "current localization lost, please place at Home facing Kitchen");
+        logNavEvent(
+            "ERROR",
+            "current localization lost, please place at Home facing Kitchen");
         return rejectRequest("current localization lost");
     }
 
     int8_t actualStart = currentNodeIndex;
-    if (actualStart == findNodeIndex(HOME_NODE_ID) && startNodeId == HOME_NODE_ID) {
+    if (actualStart == findNodeIndex(HOME_NODE_ID) &&
+        startNodeId == HOME_NODE_ID) {
         currentHeadingDegrees = 0.0f;
         logNavEvent("INFO", "Reset current heading to 0 at Home node");
     }
 
     PlannedStep nextSteps[MAX_PATH_STEPS] = {};
     uint8_t nextStepCount = 0;
-    
+
     if (actualStart != requestedStartIndex) {
-        // Need to build a two-part path: current -> requestedStart -> requestedTarget
+        // Need to build a two-part path: current -> requestedStart ->
+        // requestedTarget
         PlannedStep part1[MAX_PATH_STEPS] = {};
         uint8_t count1 = 0;
         if (!buildPath(actualStart, requestedStartIndex, part1, count1))
             return rejectRequest("no path found to intermediate start");
 
         // The second path needs to resume from the updated simulated heading
-        // buildPath normally relies on `currentHeadingDegrees`. We must temporarily update it,
-        // or just let it simulate naturally. Wait. buildPath uses `currentHeadingDegrees` internally.
-        // We will temporarily advance `currentHeadingDegrees` to match the end of part 1.
+        // buildPath normally relies on `currentHeadingDegrees`. We must
+        // temporarily update it, or just let it simulate naturally. Wait.
+        // buildPath uses `currentHeadingDegrees` internally. We will
+        // temporarily advance `currentHeadingDegrees` to match the end of
+        // part 1.
         float backupHeading = currentHeadingDegrees;
-        
+
         for (uint8_t i = 0; i < count1; ++i) {
             nextSteps[nextStepCount++] = part1[i];
-            if (part1[i].action == NavigationAction::TURN_RIGHT) currentHeadingDegrees += 90.0f;
-            if (part1[i].action == NavigationAction::TURN_LEFT) currentHeadingDegrees -= 90.0f;
-            while (currentHeadingDegrees < 0.0f) currentHeadingDegrees += 360.0f;
-            while (currentHeadingDegrees >= 360.0f) currentHeadingDegrees -= 360.0f;
+            if (part1[i].action == NavigationAction::TURN_RIGHT)
+                currentHeadingDegrees += 90.0f;
+            if (part1[i].action == NavigationAction::TURN_LEFT)
+                currentHeadingDegrees -= 90.0f;
+            while (currentHeadingDegrees < 0.0f)
+                currentHeadingDegrees += 360.0f;
+            while (currentHeadingDegrees >= 360.0f)
+                currentHeadingDegrees -= 360.0f;
         }
-        
+
         PlannedStep part2[MAX_PATH_STEPS] = {};
         uint8_t count2 = 0;
-        if (!buildPath(requestedStartIndex, requestedTargetIndex, part2, count2)) {
+        if (!buildPath(requestedStartIndex, requestedTargetIndex, part2,
+                       count2)) {
             currentHeadingDegrees = backupHeading; // Restore
             return rejectRequest("no path found to target");
         }
-        
+
         for (uint8_t i = 0; i < count2; ++i) {
             if (nextStepCount < MAX_PATH_STEPS) {
                 nextSteps[nextStepCount++] = part2[i];
             }
         }
-        
+
         currentHeadingDegrees = backupHeading; // Restore for actual execution
     } else {
         if (!buildPath(requestedStartIndex, requestedTargetIndex, nextSteps,
@@ -223,8 +247,8 @@ bool NavigationController::requestNavigation(const String &startNodeId,
     notifyStateChanged();
 
     logNavEvent("INFO", "route accepted %s -> %s (%u steps)",
-                  startNodeId.c_str(), targetNodeId.c_str(),
-                  static_cast<unsigned>(plannedStepCount));
+                startNodeId.c_str(), targetNodeId.c_str(),
+                static_cast<unsigned>(plannedStepCount));
 
     if (plannedStepCount == 0) {
         navigationActive = false;
@@ -265,7 +289,6 @@ void NavigationController::loseLocalization() {
     currentHeadingDegrees = 0.0f;
     state.setCurrentNode("");
     state.setPosition("");
-    lastSeenRfid = "";
     needsHomeReinitialization = true;
     logNavEvent("WARN", "Lost localization due to MANUAL override.");
     notifyStateChanged();
@@ -302,9 +325,14 @@ bool NavigationController::buildPath(int8_t startNodeIndex,
         return true;
 
     bool visited[GRAPH_NODE_COUNT] = {};
-    int8_t previousNode[GRAPH_NODE_COUNT] = {-1, -1, -1};
-    int8_t previousEdge[GRAPH_NODE_COUNT] = {-1, -1, -1};
+    int8_t previousNode[GRAPH_NODE_COUNT] = {};
+    int8_t previousEdge[GRAPH_NODE_COUNT] = {};
     uint8_t queue[GRAPH_NODE_COUNT] = {};
+
+    for (uint8_t i = 0; i < GRAPH_NODE_COUNT; ++i) {
+        previousNode[i] = -1;
+        previousEdge[i] = -1;
+    }
 
     uint8_t queueHead = 0;
     uint8_t queueTail = 0;
@@ -334,7 +362,7 @@ bool NavigationController::buildPath(int8_t startNodeIndex,
     if (!visited[targetNodeIndex])
         return false;
 
-    int8_t reverseEdges[MAX_PATH_STEPS] = {-1, -1, -1};
+    int8_t reverseEdges[MAX_PATH_STEPS] = {};
     uint8_t reverseEdgeCount = 0;
     int8_t walk = targetNodeIndex;
 
@@ -351,11 +379,13 @@ bool NavigationController::buildPath(int8_t startNodeIndex,
 
     for (uint8_t i = 0; i < reverseEdgeCount; ++i) {
         const auto &edge = GRAPH_EDGES[reverseEdges[reverseEdgeCount - 1U - i]];
-        
+
         int16_t diff = (edge.mapHeading - simHeading) % 360;
-        if (diff < -180) diff += 360;
-        else if (diff > 180) diff -= 360;
-        
+        if (diff < -180)
+            diff += 360;
+        else if (diff > 180)
+            diff -= 360;
+
         NavigationAction act = NavigationAction::STRAIGHT;
         if (diff == 0) {
             act = NavigationAction::STRAIGHT;
@@ -371,8 +401,9 @@ bool NavigationController::buildPath(int8_t startNodeIndex,
             act = NavigationAction::TURN_RIGHT;
             simHeading = (simHeading + diff) % 360;
         }
-        
-        if (simHeading < 0) simHeading += 360;
+
+        if (simHeading < 0)
+            simHeading += 360;
 
         outSteps[i] = PlannedStep{edge.from, edge.to, act};
     }
@@ -393,7 +424,6 @@ void NavigationController::processRfid(uint32_t nowMs) {
         return;
 
     lastSeenRfid = uid;
-    audio.playBeep(1000, 300);
 
     const int8_t nodeIndex = findNodeIndexByRfid(uid);
     if (nodeIndex < 0) {
@@ -401,11 +431,17 @@ void NavigationController::processRfid(uint32_t nowMs) {
         return;
     }
 
+    const int8_t homeIndex = findNodeIndex(HOME_NODE_ID);
+    if (needsHomeReinitialization && nodeIndex != homeIndex)
+        return;
+
+    audio.playBeep(1000, 300);
+
     setLocalizedNode(nodeIndex);
-    if (nodeIndex == findNodeIndex(HOME_NODE_ID))
+    if (nodeIndex == homeIndex)
         needsHomeReinitialization = false;
-    logNavEvent("INFO", "localized at node %s (%s)",
-                  GRAPH_NODES[nodeIndex].id, uid.c_str());
+    logNavEvent("INFO", "localized at node %s (%s)", GRAPH_NODES[nodeIndex].id,
+                uid.c_str());
 
     if (!navigationActive || motionPhase != MotionPhase::DRIVING)
         return;
@@ -428,16 +464,16 @@ void NavigationController::startStep(uint32_t nowMs) {
 
     const PlannedStep &step = plannedSteps[currentStepIndex];
     logNavEvent("INFO", "step %u/%u %s -> %s action=%u",
-                  static_cast<unsigned>(currentStepIndex + 1U),
-                  static_cast<unsigned>(plannedStepCount),
-                  GRAPH_NODES[step.from].id, GRAPH_NODES[step.to].id,
-                  static_cast<unsigned>(step.action));
+                static_cast<unsigned>(currentStepIndex + 1U),
+                static_cast<unsigned>(plannedStepCount),
+                GRAPH_NODES[step.from].id, GRAPH_NODES[step.to].id,
+                static_cast<unsigned>(step.action));
 
     if (step.action == NavigationAction::STRAIGHT) {
         startDriving(nowMs, false);
         return;
     }
-    
+
     if (step.action == NavigationAction::REVERSE) {
         startDriving(nowMs, true);
         return;
@@ -449,7 +485,8 @@ void NavigationController::startStep(uint32_t nowMs) {
 void NavigationController::startDriving(uint32_t, bool reverse) {
     motionPhase = MotionPhase::DRIVING;
     state.setNavigationStatus("DRIVING");
-    drive.setTargets(reverse ? -NAV_DRIVE_THROTTLE : NAV_DRIVE_THROTTLE, 0.0f, true);
+    drive.setTargets(reverse ? -NAV_DRIVE_THROTTLE : NAV_DRIVE_THROTTLE, 0.0f,
+                     true);
     notifyStateChanged();
 }
 
