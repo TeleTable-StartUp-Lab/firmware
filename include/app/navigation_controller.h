@@ -15,7 +15,8 @@ public:
     {
         STRAIGHT,
         TURN_RIGHT,
-        TURN_LEFT
+        TURN_LEFT,
+        REVERSE
     };
 
     struct GraphNode
@@ -29,7 +30,7 @@ public:
     {
         uint8_t from;
         uint8_t to;
-        NavigationAction action;
+        int16_t mapHeading;
     };
 
     using StateChangedCallback = std::function<void()>;
@@ -61,7 +62,7 @@ private:
 
     static constexpr uint8_t GRAPH_NODE_COUNT = 3;
     static constexpr uint8_t GRAPH_EDGE_COUNT = 4;
-    static constexpr uint8_t MAX_PATH_STEPS = GRAPH_NODE_COUNT;
+    static constexpr uint8_t MAX_PATH_STEPS = 8;
 
     int8_t findNodeIndex(const String &nodeId) const;
     int8_t findNodeIndexByRfid(const String &rfidUid) const;
@@ -69,13 +70,15 @@ private:
 
     void processRfid(uint32_t nowMs);
     void startStep(uint32_t nowMs);
-    void startDriving(uint32_t nowMs);
+    void startDriving(uint32_t nowMs, bool reverse = false);
     void startTurning(NavigationAction action, uint32_t nowMs);
     void completeStep(uint32_t nowMs);
     void stopMotion();
     void setLocalizedNode(int8_t nodeIndex);
     void setError(const char *message);
     void notifyStateChanged() const;
+
+    float currentHeadingDegrees = 0.0f; // Track heading (0 = Home->Kitchen)
 
     RobotState &state;
     DriveController &drive;
@@ -96,6 +99,7 @@ private:
     uint32_t lastTurnSampleMs;
     uint32_t turnStartMs;
     float accumulatedTurnDegrees;
+    NavigationAction pendingTurnAction;
 
     String lastSeenRfid;
 };
