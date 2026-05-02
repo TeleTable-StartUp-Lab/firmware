@@ -24,6 +24,8 @@ public:
 
     bool obstacleFrontActive() const;
 
+    uint32_t getLastDriveCmdMs() const { return lastDriveCmdMs; }
+
 private:
     struct DriveConfig
     {

@@ -128,8 +128,11 @@ void BackendCoordinator::begin()
             },
             .onDriveCommand = [this](float linear, float angular)
             {
-                navigation.cancel("IDLE");
-                state.setDriveMode(RobotHttpServer::DriveMode::MANUAL);
+                if (state.driveMode() != RobotHttpServer::DriveMode::MANUAL) {
+                    navigation.cancel("IDLE");
+                    navigation.loseLocalization();
+                    state.setDriveMode(RobotHttpServer::DriveMode::MANUAL);
+                }
 
                 if (!std::isfinite(linear))
                     linear = 0.0f;
@@ -223,7 +226,9 @@ void BackendCoordinator::begin()
                 else if (mode == "MANUAL")
                 {
                     navigation.cancel("IDLE");
+                    navigation.loseLocalization();
                     state.setDriveMode(RobotHttpServer::DriveMode::MANUAL);
+                    drive.setTargets(0.0f, 0.0f, false); // Reset drive command timer
                 }
                 else if (mode == "AUTO")
                 {
@@ -239,8 +244,23 @@ void BackendCoordinator::begin()
 
 void BackendCoordinator::handle()
 {
+    uint32_t nowMs = millis();
     RobotHttpServer::handle();
     WsControlClient::loop();
+    driveTask(nowMs);
+}
+
+void BackendCoordinator::driveTask(uint32_t nowMs)
+{
+    if (state.driveMode() == RobotHttpServer::DriveMode::MANUAL)
+    {
+        if (nowMs - drive.getLastDriveCmdMs() >= 5000)
+        {
+            state.setDriveMode(RobotHttpServer::DriveMode::IDLE);
+            Serial.println("[mode] auto-reverted to IDLE after 5s of inactivity");
+            pushState();
+        }
+    }
 }
 
 void BackendCoordinator::registerTask(uint32_t nowMs)

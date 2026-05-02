@@ -42,6 +42,7 @@ public:
 
     bool requestNavigation(const String &startNodeId, const String &targetNodeId, String *errorMessage = nullptr);
     void cancel(const char *navigationStatus = "IDLE", bool clearTargetNode = true);
+    void loseLocalization();
 
     void setStateChangedCallback(StateChangedCallback callback);
 
@@ -100,6 +101,7 @@ private:
     uint32_t turnStartMs;
     float accumulatedTurnDegrees;
     NavigationAction pendingTurnAction;
+    bool needsHomeReinitialization;
 
     String lastSeenRfid;
 };

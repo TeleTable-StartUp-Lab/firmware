@@ -22,6 +22,8 @@ public:
     void eventTask(uint32_t nowMs);
     void pushState();
 
+    void driveTask(uint32_t nowMs);
+
 private:
     RobotState &state;
     DriveController &drive;

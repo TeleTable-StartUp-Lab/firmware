@@ -57,7 +57,8 @@ NavigationController::NavigationController(RobotState &stateRef,
     : state(stateRef), drive(driveRef), sensors(sensorsRef), audio(audioRef),
       currentNodeIndex(-1), targetNodeIndex(-1), navigationActive(false),
       motionPhase(MotionPhase::IDLE), plannedStepCount(0), currentStepIndex(0),
-      lastTurnSampleMs(0), turnStartMs(0), accumulatedTurnDegrees(0.0f) {}
+    lastTurnSampleMs(0), turnStartMs(0), accumulatedTurnDegrees(0.0f),
+    needsHomeReinitialization(false) {}
 
 void NavigationController::begin() {
     setLocalizedNode(0);
@@ -142,6 +143,9 @@ bool NavigationController::requestNavigation(const String &startNodeId,
     const int8_t requestedTargetIndex = findNodeIndex(targetNodeId);
     if (requestedTargetIndex < 0)
         return rejectRequest("unknown target node");
+
+    if (needsHomeReinitialization)
+        return rejectRequest("manual mode requires home reinitialization");
 
     if (currentNodeIndex < 0) {
         logNavEvent("ERROR", "current localization lost, please place at Home facing Kitchen");
@@ -250,6 +254,20 @@ void NavigationController::cancel(const char *navigationStatus,
     if (clearTargetNode)
         state.setTargetNode("");
     state.setNavigationStatus(navigationStatus ? navigationStatus : "IDLE");
+    notifyStateChanged();
+}
+
+void NavigationController::loseLocalization() {
+    if (needsHomeReinitialization && currentNodeIndex < 0)
+        return;
+
+    currentNodeIndex = -1;
+    currentHeadingDegrees = 0.0f;
+    state.setCurrentNode("");
+    state.setPosition("");
+    lastSeenRfid = "";
+    needsHomeReinitialization = true;
+    logNavEvent("WARN", "Lost localization due to MANUAL override.");
     notifyStateChanged();
 }
 
@@ -367,6 +385,9 @@ void NavigationController::processRfid(uint32_t nowMs) {
     if (!sensors.hasRfid())
         return;
 
+    if (state.driveMode() == RobotHttpServer::DriveMode::MANUAL)
+        return;
+
     const String &uid = sensors.rfid().uid_hex;
     if (uid.length() == 0 || uid == lastSeenRfid)
         return;
@@ -381,6 +402,8 @@ void NavigationController::processRfid(uint32_t nowMs) {
     }
 
     setLocalizedNode(nodeIndex);
+    if (nodeIndex == findNodeIndex(HOME_NODE_ID))
+        needsHomeReinitialization = false;
     logNavEvent("INFO", "localized at node %s (%s)",
                   GRAPH_NODES[nodeIndex].id, uid.c_str());
 
@@ -471,6 +494,8 @@ void NavigationController::setLocalizedNode(int8_t nodeIndex) {
     currentNodeIndex = nodeIndex;
     state.setCurrentNode(GRAPH_NODES[nodeIndex].id);
     state.setPosition(GRAPH_NODES[nodeIndex].id);
+    if (nodeIndex == findNodeIndex(HOME_NODE_ID) && needsHomeReinitialization)
+        currentHeadingDegrees = 0.0f;
     notifyStateChanged();
 }
 
