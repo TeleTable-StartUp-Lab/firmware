@@ -11,6 +11,11 @@
 
 #include <cmath>
 
+namespace
+{
+    constexpr uint32_t WS_DISCONNECT_ALERT_DELAY_MS = 2000;
+}
+
 BackendCoordinator::BackendCoordinator(RobotState &stateRef, DriveController &driveRef, SensorSuite &sensorsRef, NavigationController &navigationRef, LedController &ledsRef, I2sAudio &audioRef)
     : state(stateRef),
       drive(driveRef),
@@ -22,7 +27,9 @@ BackendCoordinator::BackendCoordinator(RobotState &stateRef, DriveController &dr
       lastBackendStateMs(0),
       stateDirty(false),
       stateUrgent(false),
-      wsSeenConnected(false)
+      wsSeenConnected(false),
+      wsDisconnectAlerted(false),
+      wsDisconnectedSinceMs(0)
 {
 }
 
@@ -105,16 +112,26 @@ void BackendCoordinator::begin()
         WsControlClient::Handlers{
             .onConnected = [this]()
             {
-                if (wsSeenConnected)
-                    FirmwareAlert::info("WebSocket reconnected");
-                else
+                const bool hadReportedDisconnect = wsDisconnectAlerted;
+                wsDisconnectAlerted = false;
+                wsDisconnectedSinceMs = 0;
+
+                if (!wsSeenConnected)
+                {
                     FirmwareAlert::info("WebSocket connected");
+                }
+                else if (hadReportedDisconnect)
+                {
+                    FirmwareAlert::info("WebSocket reconnected");
+                }
+
                 wsSeenConnected = true;
                 pushState();
             },
-            .onDisconnected = []()
+            .onDisconnected = [this]()
             {
-                FirmwareAlert::warn("WebSocket disconnected");
+                wsDisconnectedSinceMs = millis();
+                wsDisconnectAlerted = false;
             },
             .onNavigate = [this](const String &startNode, const String &destNode)
             {
@@ -133,10 +150,12 @@ void BackendCoordinator::begin()
             },
             .onDriveCommand = [this](float linear, float angular)
             {
+                bool modeChanged = false;
                 if (state.driveMode() != RobotHttpServer::DriveMode::MANUAL) {
                     navigation.cancel("IDLE");
                     navigation.loseLocalization();
                     state.setDriveMode(RobotHttpServer::DriveMode::MANUAL);
+                    modeChanged = true;
                 }
 
                 if (!std::isfinite(linear))
@@ -149,7 +168,8 @@ void BackendCoordinator::begin()
 
                 drive.setTargets(linear, angular, false);
 
-                pushState();
+                if (modeChanged)
+                    pushState();
             },
             .onLed = [this](bool enabled, uint8_t r, uint8_t g, uint8_t b, uint8_t brightness, const String &mode)
             {
@@ -264,6 +284,15 @@ void BackendCoordinator::handle()
     uint32_t nowMs = millis();
     RobotHttpServer::handle();
     WsControlClient::loop();
+
+    if (!WsControlClient::isConnected() && wsSeenConnected && !wsDisconnectAlerted &&
+        wsDisconnectedSinceMs != 0 &&
+        (nowMs - wsDisconnectedSinceMs) >= WS_DISCONNECT_ALERT_DELAY_MS)
+    {
+        FirmwareAlert::warn("WebSocket disconnected");
+        wsDisconnectAlerted = true;
+    }
+
     driveTask(nowMs);
 }
 

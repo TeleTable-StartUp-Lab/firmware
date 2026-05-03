@@ -5,7 +5,6 @@
 #include "app_config.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <WiFi.h>
 #include <WebSocketsClient.h>
 
 namespace
@@ -14,7 +13,6 @@ namespace
     WsControlClient::Handlers g_handlers{};
     bool g_connected = false;
 
-    uint32_t g_lastReconnectMs = 0;
     constexpr uint32_t RECONNECT_INTERVAL_MS = 3000;
 
     void beginWsConnection()
@@ -197,23 +195,11 @@ namespace WsControlClient
         beginWsConnection();
         g_ws.onEvent(wsEvent);
         g_ws.setReconnectInterval(RECONNECT_INTERVAL_MS);
-        g_ws.enableHeartbeat(15000, 3000, 2);
     }
 
     void loop()
     {
         g_ws.loop();
-
-        if (WiFi.status() != WL_CONNECTED)
-            return;
-
-        const uint32_t nowMs = millis();
-        if (!g_connected && (nowMs - g_lastReconnectMs) >= RECONNECT_INTERVAL_MS)
-        {
-            g_lastReconnectMs = nowMs;
-            g_ws.disconnect();
-            beginWsConnection();
-        }
     }
 
     bool isConnected()

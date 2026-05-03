@@ -37,4 +37,6 @@ private:
     bool stateDirty;
     bool stateUrgent;
     bool wsSeenConnected;
+    bool wsDisconnectAlerted;
+    uint32_t wsDisconnectedSinceMs;
 };

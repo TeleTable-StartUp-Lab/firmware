@@ -23,7 +23,7 @@ constexpr char KITCHEN_NODE_RFID[] = "11:A3:95:F5";
 constexpr char OFFICE_NODE_RFID[] = "C1:41:94:F5";
 constexpr char GRAVE_NODE_RFID[] = "81:CB:97:F5";
 
-constexpr float NAV_DRIVE_THROTTLE = 0.35f;
+constexpr float NAV_DRIVE_THROTTLE = 0.3f;
 constexpr float NAV_TURN_STEER = 1.0f;
 constexpr float TARGET_TURN_DEGREES = 90.0f;
 constexpr uint32_t MAX_TURN_TIME_MS = 8000;
