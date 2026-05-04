@@ -4,6 +4,7 @@
 #include <functional>
 
 #include "app/drive_controller.h"
+#include "app/led_controller.h"
 #include "app/robot_state.h"
 #include "app/sensor_suite.h"
 #include "drivers/i2s_audio.h"
@@ -35,7 +36,7 @@ public:
 
     using StateChangedCallback = std::function<void()>;
 
-    NavigationController(RobotState &state, DriveController &drive, SensorSuite &sensors, I2sAudio &audio);
+    NavigationController(RobotState &state, DriveController &drive, SensorSuite &sensors, LedController &leds, I2sAudio &audio);
 
     void begin();
     void update(uint32_t nowMs);
@@ -74,6 +75,7 @@ private:
     void startDriving(uint32_t nowMs, bool reverse = false);
     void startTurning(NavigationAction action, uint32_t nowMs);
     void completeStep(uint32_t nowMs);
+    void playArrivalJingle();
     void stopMotion();
     void setLocalizedNode(int8_t nodeIndex);
     void setError(const char *message);
@@ -84,6 +86,7 @@ private:
     RobotState &state;
     DriveController &drive;
     SensorSuite &sensors;
+    LedController &leds;
     I2sAudio &audio;
     StateChangedCallback stateChangedCallback;
 

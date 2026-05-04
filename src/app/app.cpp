@@ -34,7 +34,7 @@ I2sAudio audio({.bclk_pin = static_cast<int>(BoardPins::I2S_BCLK),
                 .sample_rate_hz = 16000});
 
 RobotState state;
-NavigationController navigation(state, drive, sensors, audio);
+NavigationController navigation(state, drive, sensors, leds, audio);
 OledUi oled(state, sensors);
 ConsoleCommander console(drive, sensors, leds, audio);
 BackendCoordinator backend(state, drive, sensors, navigation, leds, audio);

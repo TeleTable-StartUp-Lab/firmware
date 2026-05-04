@@ -84,11 +84,13 @@ void logNavError(const char *format, ...)
 NavigationController::NavigationController(RobotState &stateRef,
                                            DriveController &driveRef,
                                            SensorSuite &sensorsRef,
+                                           LedController &ledsRef,
                                            I2sAudio &audioRef)
-    : state(stateRef), drive(driveRef), sensors(sensorsRef), audio(audioRef),
-      currentNodeIndex(-1), targetNodeIndex(-1), navigationActive(false),
-      motionPhase(MotionPhase::IDLE), plannedStepCount(0), currentStepIndex(0),
-      lastTurnSampleMs(0), turnStartMs(0), accumulatedTurnDegrees(0.0f),
+    : state(stateRef), drive(driveRef), sensors(sensorsRef), leds(ledsRef),
+      audio(audioRef), currentNodeIndex(-1), targetNodeIndex(-1),
+      navigationActive(false), motionPhase(MotionPhase::IDLE),
+      plannedStepCount(0), currentStepIndex(0), lastTurnSampleMs(0),
+      turnStartMs(0), accumulatedTurnDegrees(0.0f),
       needsHomeReinitialization(false) {}
 
 void NavigationController::begin() {
@@ -542,11 +544,21 @@ void NavigationController::completeStep(uint32_t nowMs) {
         motionPhase = MotionPhase::IDLE;
         state.setNavigationStatus("ARRIVED");
         notifyStateChanged();
+        playArrivalJingle();
+        leds.startArrivalCelebration();
         logNavInfo("arrived at %s", state.targetNode().c_str());
         return;
     }
 
     startStep(nowMs);
+}
+
+void NavigationController::playArrivalJingle() {
+    audio.playBeep(784, 120);
+    delay(30);
+    audio.playBeep(988, 120);
+    delay(30);
+    audio.playBeep(1319, 180);
 }
 
 void NavigationController::stopMotion() { drive.setTargets(0.0f, 0.0f, true); }

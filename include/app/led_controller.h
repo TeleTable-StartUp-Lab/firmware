@@ -27,6 +27,7 @@ public:
     void setMode(LedMode mode);
     void setColor(uint8_t r, uint8_t g, uint8_t b);
     void setBrightness(uint8_t v);
+    void startArrivalCelebration();
 
     bool isEnabled() const;
     bool isAutoEnabled() const;
@@ -37,7 +38,21 @@ public:
 private:
     static constexpr uint16_t LED_COUNT = 144;
 
+    struct LedSnapshot
+    {
+        bool enabled;
+        bool autoEnabled;
+        LedMode mode;
+        uint8_t brightness;
+        uint8_t r;
+        uint8_t g;
+        uint8_t b;
+    };
+
     static uint32_t wheel(Adafruit_NeoPixel &strip, uint8_t pos);
+    void cancelCelebration(bool restorePreviousState);
+    void finishArrivalCelebration();
+    void renderArrivalCelebration(uint32_t nowMs);
     void renderStatic();
     void renderBreathing(uint32_t nowMs);
     void renderLoop(uint32_t nowMs);
@@ -54,6 +69,9 @@ private:
     uint32_t lastAnimMs;
     uint16_t loopIndex;
     uint8_t rainbowOffset;
+    bool celebrationActive;
+    uint32_t celebrationStartMs;
+    LedSnapshot celebrationRestore;
 
     uint8_t ledBrightness;
     uint8_t ledR;
