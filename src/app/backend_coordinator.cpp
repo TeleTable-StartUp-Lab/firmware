@@ -14,6 +14,9 @@
 namespace
 {
     constexpr uint32_t WS_DISCONNECT_ALERT_DELAY_MS = 2000;
+    constexpr float DEFAULT_MANUAL_SPEED_CAP = 0.60f;
+    constexpr uint8_t MIN_MANUAL_SPEED_CAP_PERCENT = 10;
+    constexpr uint8_t MAX_MANUAL_SPEED_CAP_PERCENT = 100;
 }
 
 BackendCoordinator::BackendCoordinator(RobotState &stateRef, DriveController &driveRef, SensorSuite &sensorsRef, NavigationController &navigationRef, LedController &ledsRef, I2sAudio &audioRef)
@@ -29,7 +32,8 @@ BackendCoordinator::BackendCoordinator(RobotState &stateRef, DriveController &dr
       stateUrgent(false),
       wsSeenConnected(false),
       wsDisconnectAlerted(false),
-      wsDisconnectedSinceMs(0)
+      wsDisconnectedSinceMs(0),
+      manualSpeedCapMultiplier(DEFAULT_MANUAL_SPEED_CAP)
 {
 }
 
@@ -165,11 +169,33 @@ void BackendCoordinator::begin()
 
                 linear = clampf(linear, -1.0f, 1.0f);
                 angular = clampf(angular, -1.0f, 1.0f);
+                linear *= manualSpeedCapMultiplier;
+                angular *= manualSpeedCapMultiplier;
 
                 drive.setTargets(linear, angular, false);
 
                 if (modeChanged)
                     pushState();
+            },
+            .onSetManualSpeedCap = [this](int32_t maxSpeedPercent)
+            {
+                const uint8_t clampedPercent = static_cast<uint8_t>(
+                    clampf(static_cast<float>(maxSpeedPercent),
+                           static_cast<float>(MIN_MANUAL_SPEED_CAP_PERCENT),
+                           static_cast<float>(MAX_MANUAL_SPEED_CAP_PERCENT)));
+
+                if (clampedPercent != maxSpeedPercent)
+                {
+                    FirmwareAlert::warnf(
+                        "Manual speed cap clamped from %u%% to %u%%",
+                        static_cast<unsigned>(maxSpeedPercent),
+                        static_cast<unsigned>(clampedPercent));
+                }
+
+                manualSpeedCapMultiplier = static_cast<float>(clampedPercent) / 100.0f;
+                Serial.printf("[ws] SET_MANUAL_SPEED_CAP %u%% -> %.2f\n",
+                              static_cast<unsigned>(clampedPercent),
+                              static_cast<double>(manualSpeedCapMultiplier));
             },
             .onLed = [this](bool enabled, uint8_t r, uint8_t g, uint8_t b, uint8_t brightness, const String &mode)
             {

@@ -39,4 +39,5 @@ private:
     bool wsSeenConnected;
     bool wsDisconnectAlerted;
     uint32_t wsDisconnectedSinceMs;
+    float manualSpeedCapMultiplier;
 };

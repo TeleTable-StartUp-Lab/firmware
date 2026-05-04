@@ -67,6 +67,16 @@ namespace
                 g_handlers.onDriveCommand(linear, angular);
             return;
         }
+
+        if (strcmp(cmd, "SET_MANUAL_SPEED_CAP") == 0)
+        {
+            const int32_t maxSpeedPercent = doc["max_speed_percent"] | 60;
+
+            if (g_handlers.onSetManualSpeedCap)
+                g_handlers.onSetManualSpeedCap(maxSpeedPercent);
+            return;
+        }
+
         if (strcmp(cmd, "LED") == 0)
         {
             const bool enabled = doc["enabled"] | false;
