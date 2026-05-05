@@ -1,4 +1,5 @@
 #include "app/navigation_controller.h"
+#include "app/app_utils.h"
 #include "app/firmware_alert.h"
 
 #include <cmath>
@@ -25,6 +26,10 @@ constexpr char GRAVE_NODE_RFID[] = "81:CB:97:F5";
 
 constexpr float NAV_DRIVE_THROTTLE = 0.3f;
 constexpr float NAV_TURN_STEER = 1.0f;
+constexpr float NAV_STRAIGHT_YAW_TARGET_DPS = 0.0f;
+constexpr float NAV_STRAIGHT_YAW_DEADBAND_DPS = 1.5f;
+constexpr float NAV_STRAIGHT_YAW_KP = 0.015f;
+constexpr float NAV_STRAIGHT_YAW_MAX_STEER = 0.18f;
 constexpr float TARGET_TURN_DEGREES = 90.0f;
 constexpr uint32_t MAX_TURN_TIME_MS = 8000;
 
@@ -91,7 +96,7 @@ NavigationController::NavigationController(RobotState &stateRef,
       navigationActive(false), motionPhase(MotionPhase::IDLE),
       plannedStepCount(0), currentStepIndex(0), lastTurnSampleMs(0),
       turnStartMs(0), accumulatedTurnDegrees(0.0f),
-      needsHomeReinitialization(false) {}
+      drivingReverse(false), needsHomeReinitialization(false) {}
 
 void NavigationController::begin() {
     setLocalizedNode(0);
@@ -110,6 +115,11 @@ void NavigationController::update(uint32_t nowMs) {
     if (false && sensors.frontObstacleNow()) {
         logNavWarn("obstacle detected during navigation");
         setError("obstacle detected");
+        return;
+    }
+
+    if (motionPhase == MotionPhase::DRIVING) {
+        applyStraightDriveYawHold();
         return;
     }
 
@@ -268,6 +278,7 @@ bool NavigationController::requestNavigation(const String &startNodeId,
     accumulatedTurnDegrees = 0.0f;
     lastTurnSampleMs = 0;
     turnStartMs = 0;
+    drivingReverse = false;
 
     state.setRoute(startNodeId, targetNodeId);
     state.setTargetNode(targetNodeId);
@@ -281,6 +292,7 @@ bool NavigationController::requestNavigation(const String &startNodeId,
 
     if (plannedStepCount == 0) {
         navigationActive = false;
+        drivingReverse = false;
         state.setNavigationStatus("ARRIVED");
         notifyStateChanged();
         logNavInfo("already at target %s", targetNodeId.c_str());
@@ -301,6 +313,7 @@ void NavigationController::cancel(const char *navigationStatus,
     accumulatedTurnDegrees = 0.0f;
     lastTurnSampleMs = 0;
     turnStartMs = 0;
+    drivingReverse = false;
 
     stopMotion();
 
@@ -482,10 +495,29 @@ void NavigationController::processRfid(uint32_t nowMs) {
     completeStep(nowMs);
 }
 
+void NavigationController::applyStraightDriveYawHold() {
+    const float throttle =
+        drivingReverse ? -NAV_DRIVE_THROTTLE : NAV_DRIVE_THROTTLE;
+    float correction = 0.0f;
+
+    if (sensors.hasImu()) {
+        const float yawError =
+            NAV_STRAIGHT_YAW_TARGET_DPS - sensors.imu().gyro_z_dps;
+        if (std::fabs(yawError) > NAV_STRAIGHT_YAW_DEADBAND_DPS) {
+            correction = clampf(yawError * NAV_STRAIGHT_YAW_KP,
+                                -NAV_STRAIGHT_YAW_MAX_STEER,
+                                NAV_STRAIGHT_YAW_MAX_STEER);
+        }
+    }
+
+    drive.setTargets(throttle, correction, false);
+}
+
 void NavigationController::startStep(uint32_t nowMs) {
     if (currentStepIndex >= plannedStepCount) {
         navigationActive = false;
         motionPhase = MotionPhase::IDLE;
+        drivingReverse = false;
         state.setNavigationStatus("ARRIVED");
         notifyStateChanged();
         return;
@@ -513,6 +545,7 @@ void NavigationController::startStep(uint32_t nowMs) {
 
 void NavigationController::startDriving(uint32_t, bool reverse) {
     motionPhase = MotionPhase::DRIVING;
+    drivingReverse = reverse;
     state.setNavigationStatus("DRIVING");
     drive.setTargets(reverse ? -NAV_DRIVE_THROTTLE : NAV_DRIVE_THROTTLE, 0.0f,
                      true);
@@ -526,6 +559,7 @@ void NavigationController::startTurning(NavigationAction action,
     lastTurnSampleMs = nowMs;
     turnStartMs = nowMs;
     pendingTurnAction = action;
+    drivingReverse = false;
 
     const float steer = (action == NavigationAction::TURN_RIGHT)
                             ? -NAV_TURN_STEER
@@ -542,6 +576,7 @@ void NavigationController::completeStep(uint32_t nowMs) {
     if (currentStepIndex >= plannedStepCount) {
         navigationActive = false;
         motionPhase = MotionPhase::IDLE;
+        drivingReverse = false;
         state.setNavigationStatus("ARRIVED");
         notifyStateChanged();
         playArrivalJingle();
@@ -584,6 +619,7 @@ void NavigationController::setError(const char *message) {
     lastTurnSampleMs = 0;
     turnStartMs = 0;
     accumulatedTurnDegrees = 0.0f;
+    drivingReverse = false;
 
     state.setDriveMode(RobotHttpServer::DriveMode::IDLE);
     state.setNavigationStatus("ERROR");

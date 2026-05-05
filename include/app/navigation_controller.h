@@ -71,6 +71,7 @@ private:
     bool buildPath(int8_t startNodeIndex, int8_t targetNodeIndex, PlannedStep *outSteps, uint8_t &outStepCount) const;
 
     void processRfid(uint32_t nowMs);
+    void applyStraightDriveYawHold();
     void startStep(uint32_t nowMs);
     void startDriving(uint32_t nowMs, bool reverse = false);
     void startTurning(NavigationAction action, uint32_t nowMs);
@@ -104,6 +105,7 @@ private:
     uint32_t turnStartMs;
     float accumulatedTurnDegrees;
     NavigationAction pendingTurnAction;
+    bool drivingReverse;
     bool needsHomeReinitialization;
 
     String lastSeenRfid;
