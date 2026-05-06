@@ -7,13 +7,16 @@ LedController::LedController(SensorSuite &sensorsRef)
       ledStrip(LED_COUNT, static_cast<uint8_t>(BoardPins::LED_STRIP_DATA), NEO_GRB + NEO_KHZ800),
       ledEnabled(false),
       ledAutoEnabled(true),
+      ledAutoActivated(false),
+      ledAutoLuxThreshold(BoardPins::LED_LUX_ON_THRESHOLD),
       ledMode(LedMode::Static),
       lastAnimMs(0),
       loopIndex(0),
       rainbowOffset(0),
+      scannerForward(true),
       celebrationActive(false),
       celebrationStartMs(0),
-      celebrationRestore{false, true, LedMode::Static, 40, 255, 255, 255},
+      celebrationRestore{false, true, false, LedMode::Static, 40, 255, 255, 255},
       ledBrightness(40),
       ledR(255),
       ledG(255),
@@ -52,15 +55,23 @@ void LedController::autoTask()
 
     const float lux = sensors.lux();
 
-    if (!ledEnabled && lux < BoardPins::LED_LUX_ON_THRESHOLD)
+    if (!ledEnabled && lux < ledAutoLuxThreshold)
     {
-        setEnabled(true);
-        Serial.printf("[led] auto on (lux=%.1f)\n", static_cast<double>(lux));
+        ledEnabled = true;
+        ledAutoActivated = true;
+        apply();
+        Serial.printf("[led] auto on (lux=%.1f threshold=%.1f)\n",
+                      static_cast<double>(lux),
+                      static_cast<double>(ledAutoLuxThreshold));
     }
-    else if (ledEnabled && lux > BoardPins::LED_LUX_OFF_THRESHOLD)
+    else if (ledEnabled && ledAutoActivated && lux >= ledAutoLuxThreshold)
     {
-        setEnabled(false);
-        Serial.printf("[led] auto off (lux=%.1f)\n", static_cast<double>(lux));
+        ledEnabled = false;
+        ledAutoActivated = false;
+        apply();
+        Serial.printf("[led] auto off (lux=%.1f threshold=%.1f)\n",
+                      static_cast<double>(lux),
+                      static_cast<double>(ledAutoLuxThreshold));
     }
 }
 
@@ -69,12 +80,31 @@ void LedController::setAutoEnabled(bool enabled)
     if (celebrationActive)
         cancelCelebration(false);
     ledAutoEnabled = enabled;
+
+    if (!ledAutoEnabled && ledAutoActivated)
+    {
+        ledEnabled = false;
+        ledAutoActivated = false;
+        apply();
+    }
+}
+
+void LedController::setAutoLuxThreshold(float luxThreshold)
+{
+    if (celebrationActive)
+        cancelCelebration(false);
+
+    if (isnan(luxThreshold))
+        return;
+
+    ledAutoLuxThreshold = constrain(luxThreshold, 0.0f, 1000.0f);
 }
 
 void LedController::setEnabled(bool enabled)
 {
     if (celebrationActive)
         cancelCelebration(false);
+    ledAutoActivated = false;
     if (ledEnabled == enabled)
         return;
 
@@ -87,6 +117,7 @@ void LedController::setMode(LedMode mode)
 {
     if (celebrationActive)
         cancelCelebration(false);
+    ledAutoActivated = false;
     if (ledMode == mode)
         return;
 
@@ -94,6 +125,7 @@ void LedController::setMode(LedMode mode)
     lastAnimMs = 0;
     loopIndex = 0;
     rainbowOffset = 0;
+    scannerForward = true;
     apply();
 }
 
@@ -101,6 +133,7 @@ void LedController::setColor(uint8_t r, uint8_t g, uint8_t b)
 {
     if (celebrationActive)
         cancelCelebration(false);
+    ledAutoActivated = false;
     ledR = r;
     ledG = g;
     ledB = b;
@@ -110,12 +143,13 @@ void LedController::setBrightness(uint8_t v)
 {
     if (celebrationActive)
         cancelCelebration(false);
+    ledAutoActivated = false;
     ledBrightness = v;
 }
 
 void LedController::startArrivalCelebration()
 {
-    celebrationRestore = {ledEnabled, ledAutoEnabled, ledMode, ledBrightness, ledR,
+    celebrationRestore = {ledEnabled, ledAutoEnabled, ledAutoActivated, ledMode, ledBrightness, ledR,
                           ledG, ledB};
     celebrationActive = true;
     celebrationStartMs = millis();
@@ -123,6 +157,7 @@ void LedController::startArrivalCelebration()
 
     ledEnabled = true;
     ledAutoEnabled = false;
+    ledAutoActivated = false;
     ledMode = LedMode::Static;
     renderArrivalCelebration(celebrationStartMs);
 }
@@ -135,6 +170,11 @@ bool LedController::isEnabled() const
 bool LedController::isAutoEnabled() const
 {
     return ledAutoEnabled;
+}
+
+float LedController::autoLuxThreshold() const
+{
+    return ledAutoLuxThreshold;
 }
 
 uint8_t LedController::brightness() const
@@ -158,6 +198,7 @@ void LedController::cancelCelebration(bool restorePreviousState)
 
     ledEnabled = celebrationRestore.enabled;
     ledAutoEnabled = celebrationRestore.autoEnabled;
+    ledAutoActivated = celebrationRestore.autoActivated;
     ledMode = celebrationRestore.mode;
     ledBrightness = celebrationRestore.brightness;
     ledR = celebrationRestore.r;
@@ -166,6 +207,7 @@ void LedController::cancelCelebration(bool restorePreviousState)
     lastAnimMs = 0;
     loopIndex = 0;
     rainbowOffset = 0;
+    scannerForward = true;
     apply();
 }
 
@@ -288,6 +330,99 @@ void LedController::renderRainbow(uint32_t nowMs)
     ledStrip.show();
 }
 
+void LedController::renderColorWipe(uint32_t nowMs)
+{
+    constexpr uint32_t FRAME_MS = 20;
+    if (lastAnimMs != 0 && (nowMs - lastAnimMs) < FRAME_MS)
+        return;
+    lastAnimMs = nowMs;
+
+    if (loopIndex == 0)
+        ledStrip.clear();
+
+    const uint32_t c = ledStrip.Color(ledR, ledG, ledB);
+    ledStrip.setPixelColor(loopIndex, c);
+    loopIndex = static_cast<uint16_t>((loopIndex + 1) % LED_COUNT);
+
+    ledStrip.setBrightness(ledBrightness);
+    ledStrip.show();
+}
+
+void LedController::renderTheaterChase(uint32_t nowMs)
+{
+    constexpr uint32_t FRAME_MS = 90;
+    if (lastAnimMs != 0 && (nowMs - lastAnimMs) < FRAME_MS)
+        return;
+    lastAnimMs = nowMs;
+
+    ledStrip.clear();
+    const uint32_t c = ledStrip.Color(ledR, ledG, ledB);
+    const uint8_t phase = static_cast<uint8_t>(loopIndex % 3U);
+    for (uint16_t i = phase; i < LED_COUNT; i += 3)
+        ledStrip.setPixelColor(i, c);
+
+    loopIndex = static_cast<uint16_t>((loopIndex + 1) % 3U);
+
+    ledStrip.setBrightness(ledBrightness);
+    ledStrip.show();
+}
+
+void LedController::renderScanner(uint32_t nowMs)
+{
+    constexpr uint32_t FRAME_MS = 24;
+    if (lastAnimMs != 0 && (nowMs - lastAnimMs) < FRAME_MS)
+        return;
+    lastAnimMs = nowMs;
+
+    ledStrip.clear();
+    const uint32_t c = ledStrip.Color(ledR, ledG, ledB);
+    ledStrip.setPixelColor(loopIndex, c);
+
+    if (scannerForward)
+    {
+        if (loopIndex >= LED_COUNT - 1)
+        {
+            scannerForward = false;
+            --loopIndex;
+        }
+        else
+        {
+            ++loopIndex;
+        }
+    }
+    else if (loopIndex == 0)
+    {
+        scannerForward = true;
+        ++loopIndex;
+    }
+    else
+    {
+        --loopIndex;
+    }
+
+    ledStrip.setBrightness(ledBrightness);
+    ledStrip.show();
+}
+
+void LedController::renderSparkle(uint32_t nowMs)
+{
+    constexpr uint32_t FRAME_MS = 45;
+    if (lastAnimMs != 0 && (nowMs - lastAnimMs) < FRAME_MS)
+        return;
+    lastAnimMs = nowMs;
+
+    ledStrip.clear();
+    const uint32_t c = ledStrip.Color(ledR, ledG, ledB);
+    for (uint8_t i = 0; i < 6; ++i)
+    {
+        const uint16_t pixel = static_cast<uint16_t>(random(LED_COUNT));
+        ledStrip.setPixelColor(pixel, c);
+    }
+
+    ledStrip.setBrightness(ledBrightness);
+    ledStrip.show();
+}
+
 void LedController::render(uint32_t nowMs)
 {
     if (!ledEnabled)
@@ -310,6 +445,18 @@ void LedController::render(uint32_t nowMs)
         return;
     case LedMode::Rainbow:
         renderRainbow(nowMs);
+        return;
+    case LedMode::ColorWipe:
+        renderColorWipe(nowMs);
+        return;
+    case LedMode::TheaterChase:
+        renderTheaterChase(nowMs);
+        return;
+    case LedMode::Scanner:
+        renderScanner(nowMs);
+        return;
+    case LedMode::Sparkle:
+        renderSparkle(nowMs);
         return;
     }
 

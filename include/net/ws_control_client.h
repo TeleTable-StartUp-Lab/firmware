@@ -15,6 +15,7 @@ namespace WsControlClient
         std::function<void(float linearVelocity, float angularVelocity)> onDriveCommand;
         std::function<void(int32_t maxSpeedPercent)> onSetManualSpeedCap;
         std::function<void(bool enabled, uint8_t r, uint8_t g, uint8_t b, uint8_t brightness, const String &mode)> onLed;
+        std::function<void(bool enabled, float luxThreshold)> onLedAuto;
         std::function<void(uint32_t hz, uint32_t ms)> onAudioBeep;
         std::function<void(float value)> onAudioVolume;
         std::function<void(uint32_t sampleRateHz, uint8_t channels, uint8_t bitsPerSample, bool littleEndian)> onAudioStreamStart;

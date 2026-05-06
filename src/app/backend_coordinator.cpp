@@ -208,8 +208,15 @@ void BackendCoordinator::begin()
                     ledMode = LedController::LedMode::Loop;
                 else if (mode == "rainbow")
                     ledMode = LedController::LedMode::Rainbow;
+                else if (mode == "color_wipe")
+                    ledMode = LedController::LedMode::ColorWipe;
+                else if (mode == "theater_chase")
+                    ledMode = LedController::LedMode::TheaterChase;
+                else if (mode == "scanner")
+                    ledMode = LedController::LedMode::Scanner;
+                else if (mode == "sparkle")
+                    ledMode = LedController::LedMode::Sparkle;
 
-                leds.setAutoEnabled(false);
                 leds.setMode(ledMode);
                 leds.setColor(r, g, b);
                 leds.setBrightness(scaledBrightness);
@@ -223,6 +230,15 @@ void BackendCoordinator::begin()
                               static_cast<unsigned>(g),
                               static_cast<unsigned>(b),
                               static_cast<unsigned>(scaledBrightness));
+            },
+            .onLedAuto = [this](bool enabled, float luxThreshold)
+            {
+                leds.setAutoLuxThreshold(luxThreshold);
+                leds.setAutoEnabled(enabled);
+
+                Serial.printf("[ws] LED_AUTO enabled=%d lux_threshold=%.1f\n",
+                              enabled ? 1 : 0,
+                              static_cast<double>(leds.autoLuxThreshold()));
             },
             .onAudioBeep = [this](uint32_t hz, uint32_t ms)
             {

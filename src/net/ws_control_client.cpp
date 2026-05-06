@@ -91,6 +91,16 @@ namespace
             return;
         }
 
+        if (strcmp(cmd, "LED_AUTO") == 0)
+        {
+            const bool enabled = doc["enabled"] | false;
+            const float luxThreshold = doc["lux_threshold"] | 25.0f;
+
+            if (g_handlers.onLedAuto)
+                g_handlers.onLedAuto(enabled, luxThreshold);
+            return;
+        }
+
         if (strcmp(cmd, "AUDIO_BEEP") == 0)
         {
             const uint32_t hz = doc["hz"] | 0;
