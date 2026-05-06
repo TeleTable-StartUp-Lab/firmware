@@ -62,9 +62,9 @@ private:
         DRIVING
     };
 
-    static constexpr uint8_t GRAPH_NODE_COUNT = 15;
-    static constexpr uint8_t GRAPH_EDGE_COUNT = 28;
-    static constexpr uint8_t MAX_PATH_STEPS = 8;
+    static constexpr uint8_t GRAPH_NODE_COUNT = 25;
+    static constexpr uint8_t GRAPH_EDGE_COUNT = 35;
+    static constexpr uint8_t MAX_PATH_STEPS = 15;
 
     int8_t findNodeIndex(const String &nodeId) const;
     int8_t findNodeIndexByRfid(const String &rfidUid) const;

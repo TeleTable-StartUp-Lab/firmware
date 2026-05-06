@@ -12,6 +12,9 @@ constexpr float NAV_STRAIGHT_YAW_TARGET_DPS = 0.0f;
 constexpr float NAV_STRAIGHT_YAW_DEADBAND_DPS = 1.5f;
 constexpr float NAV_STRAIGHT_YAW_KP = 0.015f;
 constexpr float NAV_STRAIGHT_YAW_MAX_STEER = 0.18f;
+// This passes through the drive straight-steer deadband/expo, so the actual
+// motor delta is much smaller than the raw steer input.
+constexpr float NAV_RIGHT_MOTOR_TRIM_STEER = 0.11f;
 constexpr float TARGET_TURN_DEGREES = 90.0f;
 constexpr uint32_t MAX_TURN_TIME_MS = 8000;
 constexpr uint8_t NAV_GRAPH_NODE_COUNT = 15;
@@ -600,6 +603,9 @@ void NavigationController::processRfid(uint32_t nowMs) {
 void NavigationController::applyStraightDriveYawHold() {
     const float throttle =
         drivingReverse ? -NAV_DRIVE_THROTTLE : NAV_DRIVE_THROTTLE;
+    const float rightMotorTrim =
+        drivingReverse ? -NAV_RIGHT_MOTOR_TRIM_STEER
+                       : NAV_RIGHT_MOTOR_TRIM_STEER;
     float correction = 0.0f;
 
     if (sensors.hasImu()) {
@@ -612,7 +618,11 @@ void NavigationController::applyStraightDriveYawHold() {
         }
     }
 
-    drive.setTargets(throttle, correction, false);
+    drive.setTargets(
+        throttle,
+        clampf(correction + rightMotorTrim, -NAV_STRAIGHT_YAW_MAX_STEER,
+               NAV_STRAIGHT_YAW_MAX_STEER),
+        false);
 }
 
 void NavigationController::startStep(uint32_t nowMs) {
@@ -649,7 +659,9 @@ void NavigationController::startDriving(uint32_t, bool reverse) {
     motionPhase = MotionPhase::DRIVING;
     drivingReverse = reverse;
     state.setNavigationStatus("DRIVING");
-    drive.setTargets(reverse ? -NAV_DRIVE_THROTTLE : NAV_DRIVE_THROTTLE, 0.0f,
+    drive.setTargets(reverse ? -NAV_DRIVE_THROTTLE : NAV_DRIVE_THROTTLE,
+                     reverse ? -NAV_RIGHT_MOTOR_TRIM_STEER
+                             : NAV_RIGHT_MOTOR_TRIM_STEER,
                      true);
     notifyStateChanged();
 }
