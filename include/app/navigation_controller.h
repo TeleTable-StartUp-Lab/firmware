@@ -62,8 +62,8 @@ private:
         DRIVING
     };
 
-    static constexpr uint8_t GRAPH_NODE_COUNT = 4;
-    static constexpr uint8_t GRAPH_EDGE_COUNT = 6;
+    static constexpr uint8_t GRAPH_NODE_COUNT = 15;
+    static constexpr uint8_t GRAPH_EDGE_COUNT = 28;
     static constexpr uint8_t MAX_PATH_STEPS = 8;
 
     int8_t findNodeIndex(const String &nodeId) const;

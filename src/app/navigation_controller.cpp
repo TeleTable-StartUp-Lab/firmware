@@ -6,24 +6,6 @@
 #include <cstdarg>
 
 namespace {
-constexpr uint8_t NAV_GRAPH_NODE_COUNT = 4;
-constexpr uint8_t NAV_GRAPH_EDGE_COUNT = 6;
-
-constexpr char HOME_NODE_ID[] = "home";
-constexpr char KITCHEN_NODE_ID[] = "kitchen";
-constexpr char OFFICE_NODE_ID[] = "office";
-constexpr char GRAVE_NODE_ID[] = "grave";
-
-constexpr char HOME_NODE_LABEL[] = "Home";
-constexpr char KITCHEN_NODE_LABEL[] = "Kitchen";
-constexpr char OFFICE_NODE_LABEL[] = "Office";
-constexpr char GRAVE_NODE_LABEL[] = "Grave";
-
-constexpr char HOME_NODE_RFID[] = "E1:F1:94:F5";
-constexpr char KITCHEN_NODE_RFID[] = "11:A3:95:F5";
-constexpr char OFFICE_NODE_RFID[] = "C1:41:94:F5";
-constexpr char GRAVE_NODE_RFID[] = "81:CB:97:F5";
-
 constexpr float NAV_DRIVE_THROTTLE = 0.3f;
 constexpr float NAV_TURN_STEER = 1.0f;
 constexpr float NAV_STRAIGHT_YAW_TARGET_DPS = 0.0f;
@@ -32,25 +14,141 @@ constexpr float NAV_STRAIGHT_YAW_KP = 0.015f;
 constexpr float NAV_STRAIGHT_YAW_MAX_STEER = 0.18f;
 constexpr float TARGET_TURN_DEGREES = 90.0f;
 constexpr uint32_t MAX_TURN_TIME_MS = 8000;
+constexpr uint8_t NAV_GRAPH_NODE_COUNT = 15;
+constexpr uint8_t NAV_GRAPH_EDGE_COUNT = 28;
+
+// need this to signal where its home is
+constexpr char HOME_NODE_ID[] = "apotheke";
+
+// Node IDs
+constexpr char APOTHEKE_NODE_ID[] = "apotheke";
+constexpr char NODE_6_ID[] = "node6";
+constexpr char RAUM_6_ID[] = "raum6";
+constexpr char NODE_5_ID[] = "node5";
+constexpr char NODE_7_ID[] = "node7";
+constexpr char RAUM_5_ID[] = "raum5";
+constexpr char NODE_4_ID[] = "node4";
+constexpr char RAUM_3_ID[] = "raum3";
+constexpr char NODE_3_ID[] = "node3";
+constexpr char RAUM_4_ID[] = "raum4";
+constexpr char NODE_2_ID[] = "node2";
+constexpr char RAUM_2_ID[] = "raum2";
+constexpr char NODE_1_ID[] = "node1";
+constexpr char RAUM_1_ID[] = "raum1";
+constexpr char MENSA_NODE_ID[] = "mensa";
+
+// Labels
+constexpr char APOTHEKE_NODE_LABEL[] = "Apotheke";
+constexpr char NODE_6_LABEL[] = "Node 6";
+constexpr char RAUM_6_LABEL[] = "Raum 6";
+constexpr char NODE_5_LABEL[] = "Node 5";
+constexpr char NODE_7_LABEL[] = "Node 7";
+constexpr char RAUM_5_LABEL[] = "Raum 5";
+constexpr char NODE_4_LABEL[] = "Node 4";
+constexpr char RAUM_3_LABEL[] = "Raum 3";
+constexpr char NODE_3_LABEL[] = "Node 3";
+constexpr char RAUM_4_LABEL[] = "Raum 4";
+constexpr char NODE_2_LABEL[] = "Node 2";
+constexpr char RAUM_2_LABEL[] = "Raum 2";
+constexpr char NODE_1_LABEL[] = "Node 1";
+constexpr char RAUM_1_LABEL[] = "Raum 1";
+constexpr char MENSA_NODE_LABEL[] = "Mensa";
+
+// RFID UIDs
+constexpr char APOTHEKE_NODE_RFID[] = "6C:C6:A4:EE";
+constexpr char NODE_6_RFID[] = "BC:AA:A2:EE";
+constexpr char RAUM_6_RFID[] = "6C:E8:A2:EE";
+constexpr char NODE_5_RFID[] = "CC:62:9E:EE";
+constexpr char NODE_7_RFID[] = "D1:08:97:F5";
+constexpr char RAUM_5_RFID[] = "CC:B7:A0:EE";
+constexpr char NODE_4_RFID[] = "BC:68:9E:EE";
+constexpr char RAUM_3_RFID[] = "6C:B9:A0:EE";
+constexpr char NODE_3_RFID[] = "7C:68:9E:EE";
+constexpr char RAUM_4_RFID[] = "AC:72:A0:EE";
+constexpr char NODE_2_RFID[] = "4C:62:9E:EE";
+constexpr char RAUM_2_RFID[] = "2C:B9:A0:EE";
+constexpr char NODE_1_RFID[] = "CC:11:9E:EE";
+constexpr char RAUM_1_RFID[] = "5C:67:A0:EE";
+constexpr char MENSA_NODE_RFID[] = "5C:B9:9B:EE";
 
 constexpr NavigationController::GraphNode GRAPH_NODES[NAV_GRAPH_NODE_COUNT] = {
-    {HOME_NODE_ID, HOME_NODE_LABEL, HOME_NODE_RFID},
-    {KITCHEN_NODE_ID, KITCHEN_NODE_LABEL, KITCHEN_NODE_RFID},
-    {OFFICE_NODE_ID, OFFICE_NODE_LABEL, OFFICE_NODE_RFID},
-    {GRAVE_NODE_ID, GRAVE_NODE_LABEL, GRAVE_NODE_RFID},
+    // index 0 is home/start. Robot starts at Apotheke facing north.
+    {APOTHEKE_NODE_ID, APOTHEKE_NODE_LABEL, APOTHEKE_NODE_RFID}, // 0
+    {NODE_6_ID, NODE_6_LABEL, NODE_6_RFID},                      // 1
+    {RAUM_6_ID, RAUM_6_LABEL, RAUM_6_RFID},                      // 2
+    {NODE_5_ID, NODE_5_LABEL, NODE_5_RFID},                      // 3
+    {NODE_7_ID, NODE_7_LABEL, NODE_7_RFID},                      // 4
+    {RAUM_5_ID, RAUM_5_LABEL, RAUM_5_RFID},                      // 5
+    {NODE_4_ID, NODE_4_LABEL, NODE_4_RFID},                      // 6
+    {RAUM_3_ID, RAUM_3_LABEL, RAUM_3_RFID},                      // 7
+    {NODE_3_ID, NODE_3_LABEL, NODE_3_RFID},                      // 8
+    {RAUM_4_ID, RAUM_4_LABEL, RAUM_4_RFID},                      // 9
+    {NODE_2_ID, NODE_2_LABEL, NODE_2_RFID},                      // 10
+    {RAUM_2_ID, RAUM_2_LABEL, RAUM_2_RFID},                      // 11
+    {NODE_1_ID, NODE_1_LABEL, NODE_1_RFID},                      // 12
+    {RAUM_1_ID, RAUM_1_LABEL, RAUM_1_RFID},                      // 13
+    {MENSA_NODE_ID, MENSA_NODE_LABEL, MENSA_NODE_RFID},          // 14
 };
 
 constexpr NavigationController::GraphEdge GRAPH_EDGES[NAV_GRAPH_EDGE_COUNT] = {
-    {0, 1, 0},   // Home → Kitchen       (0°,  up)
-    {1, 0, 180}, // Kitchen → Home       (180°, down)
-    {1, 2, 90},  // Kitchen → Office     (90°,  right)
-    {2, 1, 270}, // Office → Kitchen     (270°, left)
-    {2, 3, 180}, // Office → Grave       (180°, down)
-    {3, 2, 0},   // Grave → Office       (0°,   up)
+    // Apotheke ↔ Node 6
+    {0, 1, 0},   // Apotheke → Node 6   north
+    {1, 0, 180}, // Node 6 → Apotheke   south
+
+    // Node 6 ↔ Raum 6
+    {1, 2, 90},  // Node 6 → Raum 6     east
+    {2, 1, 270}, // Raum 6 → Node 6     west
+
+    // Node 6 ↔ Node 5
+    {1, 3, 0},   // Node 6 → Node 5     north
+    {3, 1, 180}, // Node 5 → Node 6     south
+
+    // Node 5 ↔ Node 7
+    {3, 4, 0},   // Node 5 → Node 7     north
+    {4, 3, 180}, // Node 7 → Node 5     south
+
+    // Node 7 ↔ Raum 5
+    {4, 5, 90},  // Node 7 → Raum 5     east
+    {5, 4, 270}, // Raum 5 → Node 7     west
+
+    // Node 5 ↔ Node 4
+    {3, 6, 270}, // Node 5 → Node 4     west
+    {6, 3, 90},  // Node 4 → Node 5     east
+
+    // Node 4 ↔ Raum 3
+    {6, 7, 270}, // Node 4 → Raum 3     west
+    {7, 6, 90},  // Raum 3 → Node 4     east
+
+    // Node 4 ↔ Node 3
+    {6, 8, 0},   // Node 4 → Node 3     north
+    {8, 6, 180}, // Node 3 → Node 4     south
+
+    // Node 3 ↔ Raum 4
+    {8, 9, 90},  // Node 3 → Raum 4     east
+    {9, 8, 270}, // Raum 4 → Node 3     west
+
+    // Node 3 ↔ Node 2
+    {8, 10, 270}, // Node 3 → Node 2     west
+    {10, 8, 90},  // Node 2 → Node 3     east
+
+    // Node 2 ↔ Raum 2
+    {10, 11, 270}, // Node 2 → Raum 2    west
+    {11, 10, 90},  // Raum 2 → Node 2    east
+
+    // Node 2 ↔ Node 1
+    {10, 12, 180}, // Node 2 → Node 1    south
+    {12, 10, 0},   // Node 1 → Node 2    north
+
+    // Node 1 ↔ Raum 1
+    {12, 13, 270}, // Node 1 → Raum 1    west
+    {13, 12, 90},  // Raum 1 → Node 1    east
+
+    // Node 1 ↔ Mensa
+    {12, 14, 180}, // Node 1 → Mensa     south
+    {14, 12, 0},   // Mensa → Node 1     north
 };
 
-void logNavInfo(const char *format, ...)
-{
+void logNavInfo(const char *format, ...) {
     char buf[128];
     va_list args;
     va_start(args, format);
@@ -61,8 +159,7 @@ void logNavInfo(const char *format, ...)
     FirmwareAlert::info(String(buf));
 }
 
-void logNavWarn(const char *format, ...)
-{
+void logNavWarn(const char *format, ...) {
     char buf[128];
     va_list args;
     va_start(args, format);
@@ -73,8 +170,7 @@ void logNavWarn(const char *format, ...)
     FirmwareAlert::warn(String(buf));
 }
 
-void logNavError(const char *format, ...)
-{
+void logNavError(const char *format, ...) {
     char buf[128];
     va_list args;
     va_start(args, format);
@@ -95,8 +191,8 @@ NavigationController::NavigationController(RobotState &stateRef,
       audio(audioRef), currentNodeIndex(-1), targetNodeIndex(-1),
       navigationActive(false), motionPhase(MotionPhase::IDLE),
       plannedStepCount(0), currentStepIndex(0), lastTurnSampleMs(0),
-      turnStartMs(0), accumulatedTurnDegrees(0.0f),
-      drivingReverse(false), needsHomeReinitialization(false) {}
+      turnStartMs(0), accumulatedTurnDegrees(0.0f), drivingReverse(false),
+      needsHomeReinitialization(false) {}
 
 void NavigationController::begin() {
     setLocalizedNode(0);
@@ -157,7 +253,8 @@ void NavigationController::update(uint32_t nowMs) {
         while (currentHeadingDegrees >= 360.0f)
             currentHeadingDegrees -= 360.0f;
 
-        logNavInfo("Target degrees reached (%d), starting forward drive. New heading: %.0f",
+        logNavInfo("Target degrees reached (%d), starting forward drive. New "
+                   "heading: %.0f",
                    (int)accumulatedTurnDegrees, currentHeadingDegrees);
         drive.setTargets(0.0f, 0.0f, true);
         startDriving(nowMs, false);
@@ -173,7 +270,8 @@ void NavigationController::update(uint32_t nowMs) {
 bool NavigationController::requestNavigation(const String &startNodeId,
                                              const String &targetNodeId,
                                              String *errorMessage) {
-    auto rejectRequest = [&](const char *message, bool critical = false) -> bool {
+    auto rejectRequest = [&](const char *message,
+                             bool critical = false) -> bool {
         if (errorMessage)
             *errorMessage = message ? message : "";
 
@@ -203,7 +301,9 @@ bool NavigationController::requestNavigation(const String &startNodeId,
         return rejectRequest("manual mode requires home reinitialization");
 
     if (currentNodeIndex < 0) {
-        return rejectRequest("current localization lost, place robot at Home facing Kitchen", true);
+        return rejectRequest(
+            "current localization lost, place robot at Home facing Kitchen",
+            true);
     }
 
     int8_t actualStart = currentNodeIndex;
@@ -252,10 +352,13 @@ bool NavigationController::requestNavigation(const String &startNodeId,
             return rejectRequest("no path found to target");
         }
 
+        if (static_cast<uint16_t>(count1) + count2 > MAX_PATH_STEPS) {
+            currentHeadingDegrees = backupHeading;
+            return rejectRequest("path too long");
+        }
+
         for (uint8_t i = 0; i < count2; ++i) {
-            if (nextStepCount < MAX_PATH_STEPS) {
-                nextSteps[nextStepCount++] = part2[i];
-            }
+            nextSteps[nextStepCount++] = part2[i];
         }
 
         currentHeadingDegrees = backupHeading; // Restore for actual execution
@@ -286,9 +389,8 @@ bool NavigationController::requestNavigation(const String &startNodeId,
     state.setNavigationStatus("PLANNING");
     notifyStateChanged();
 
-    logNavInfo("route accepted %s -> %s (%u steps)",
-               startNodeId.c_str(), targetNodeId.c_str(),
-               static_cast<unsigned>(plannedStepCount));
+    logNavInfo("route accepted %s -> %s (%u steps)", startNodeId.c_str(),
+               targetNodeId.c_str(), static_cast<unsigned>(plannedStepCount));
 
     if (plannedStepCount == 0) {
         navigationActive = false;
@@ -504,9 +606,9 @@ void NavigationController::applyStraightDriveYawHold() {
         const float yawError =
             NAV_STRAIGHT_YAW_TARGET_DPS - sensors.imu().gyro_z_dps;
         if (std::fabs(yawError) > NAV_STRAIGHT_YAW_DEADBAND_DPS) {
-            correction = clampf(yawError * NAV_STRAIGHT_YAW_KP,
-                                -NAV_STRAIGHT_YAW_MAX_STEER,
-                                NAV_STRAIGHT_YAW_MAX_STEER);
+            correction =
+                clampf(yawError * NAV_STRAIGHT_YAW_KP,
+                       -NAV_STRAIGHT_YAW_MAX_STEER, NAV_STRAIGHT_YAW_MAX_STEER);
         }
     }
 
